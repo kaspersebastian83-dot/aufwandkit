@@ -179,6 +179,25 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.match(await page.locator('#seite').textContent(), /28\.07\.2026: km von (SK und AB|AB und SK) – zwei Fahrzeuge\?/);
   assert.match(await page.locator('#seite').textContent(), /1\.006\s*Probenehmer[\s\S]*?4\s*Std\./);
 
+  // Eingabe und sofort „Neu einlesen“ (vor Ablauf der Speicherverzögerung): die Eingabe muss in der Datei landen, nicht verloren gehen
+  await page.locator('button[data-tab="zeiten"]').click();
+  await z(0, 'notiz').fill('Fahrgemeinschaft geklärt');
+  await page.locator('#bNeu').click();
+  await page.locator('#zRows').waitFor();
+  assert.equal(await z(0, 'notiz').inputValue(), 'Fahrgemeinschaft geklärt', 'Eingabe bleibt nach „Neu einlesen“ sichtbar');
+  assert.equal(JSON.parse(await lies('§/Abrechnung/Aufwand_AB.json')).eintraege[0].notiz, 'Fahrgemeinschaft geklärt', 'Eingabe vor dem Neueinlesen gespeichert');
+  // Eingabe und sofort Kürzel wechseln: die Eingabe gehört in die Datei des bisherigen Kürzels
+  await z(0, 'stunden').fill('4,5');
+  await page.locator('#kz').fill('SK'); await page.locator('#kz').dispatchEvent('change');
+  await page.waitForFunction(() => /Meine Zeiten · SK/.test(document.querySelector('#seite h2')?.textContent || ''));
+  assert.equal(JSON.parse(await lies('§/Abrechnung/Aufwand_AB.json')).eintraege[0].stunden, '4,5', 'Eingabe von AB in Aufwand_AB.json');
+  assert.equal(JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json')).eintraege.length, 2, 'SK unverändert');
+  await page.locator('#kz').fill('AB'); await page.locator('#kz').dispatchEvent('change');
+  await page.waitForFunction(() => /Meine Zeiten · AB/.test(document.querySelector('#seite h2')?.textContent || ''));
+  assert.equal(await z(0, 'stunden').inputValue(), '4,5');
+  await z(0, 'stunden').fill('4');
+  await page.waitForFunction(() => /gespeichert in „Abrechnung\/Aufwand_AB\.json“/.test(document.getElementById('status').textContent));
+
   // Neu laden: alles kommt aus den Dateien zurück
   await page.reload();
   await page.locator('nav.tabs').waitFor();
