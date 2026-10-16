@@ -335,9 +335,10 @@ const AW = (() => {
 })();
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
-const APP_VERSION = '1.0.1';
-const APP_DATE = '2026-10-16';
+const APP_VERSION = '1.0.2';
+const APP_DATE = '2026-10-17';
 const CHANGELOG = [
+  ['1.0.2', '17.10.2026', 'Fehlerbehebung: Eingaben, die noch nicht gespeichert waren, gingen verloren, wenn man direkt danach „Neu einlesen“, „Projekt wechseln“ oder ein anderes Kürzel wählte. Sie werden jetzt vorher gespeichert, in der Datei des bisherigen Kürzels. Außerdem bleibt „Einstellungen speichern“ nicht mehr gesperrt, nachdem eine zuvor unlesbare Einstellungsdatei repariert und neu eingelesen wurde.'],
   ['1.0.1', '16.10.2026', 'Aussehen wie die anderen Apps: blaue Kopfzeile mit Kurzanleitung, weiße Werkzeugleiste (Projektzentrale, Projekt wechseln, Neu einlesen, Kürzel), Firmenlogo als Wasserzeichen im Hintergrund.'],
   ['1.0.0', '16.10.2026', 'Erste Version: Zeiten, km, Spesen und Übernachtungen je Kollege (eigene Datei je Kürzel), Proben aus LabelKit je Analyse, Berichtsseiten und Fotos, Positionen mit Nummern wie in der Rechnung, Kopieren fürs Rechnungsprogramm, Stand mit Prüfsummen speichern.'],
 ];
@@ -448,6 +449,7 @@ async function zeigeAuswahl(){
   $('pListe').onclick = e => { const b = e.target.closest('button[data-n]'); if (b) oeffne(b.dataset.n); };
 }
 async function oeffne(name){
+  await sichereMeine();   // offene Eingaben gehören noch zum bisherigen Projekt
   let dir; try{ dir = await A.archiv.getDirectoryHandle(name); }catch(e){ meldung('err', `Projekt „${esc(name)}“ nicht gefunden in „${esc(A.archiv.name)}“.`); await zeigeAuswahl(); return; }
   const p = parseProj(name) || { nr: name, ort: '' };
   A.proj = { name, nr: p.nr, ort: p.ort, dir };
@@ -462,7 +464,8 @@ async function ladeAlles(){
   const token = ++A.laden, aktuell = () => token === A.laden;
   $('inhalt').innerHTML = '<div class="leer"><p>Wird gelesen …</p></div>';
   const fehler = [];
-  try{ const e = await liesJson(A.archiv, EINST_DATEI); A.einst = AW.einstellungen(e && e.daten); A.einstAusDatei = !!e; A.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; }
+  await sichereMeine();   // noch nicht geschriebene Eingaben zuerst sichern – sonst überschreibt das Neueinlesen sie
+  try{ const e = await liesJson(A.archiv, EINST_DATEI); A.einst = AW.einstellungen(e && e.daten); A.einstAusDatei = !!e; A.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; A.einstGesperrt = false; }
   catch(e){ fehler.push(e.message); A.einst = AW.einstellungen(null); A.einstAusDatei = false; A.einstGesperrt = true; }
   const abr = await unter(A.proj.dir, ORDNER.abr, false);
   A.alle = [];
@@ -521,7 +524,12 @@ async function ladeAlles(){
 let speichernTimer = null;
 function meineGeaendert(){
   clearTimeout(speichernTimer); status('… wird gespeichert');
-  speichernTimer = setTimeout(() => { A.schreib = A.schreib.then(speichereMeine).catch(e => status('Nicht gespeichert: ' + e.message, 'err')); }, 500);
+  speichernTimer = setTimeout(() => { speichernTimer = null; A.schreib = A.schreib.then(speichereMeine).catch(e => status('Nicht gespeichert: ' + e.message, 'err')); }, 500);
+}
+/** Wartende Eingaben sofort schreiben (vor Kürzelwechsel, Projektwechsel und Neu einlesen). */
+async function sichereMeine(){
+  if (speichernTimer){ clearTimeout(speichernTimer); speichernTimer = null; A.schreib = A.schreib.then(speichereMeine).catch(e => status('Nicht gespeichert: ' + e.message, 'err')); }
+  await A.schreib;
 }
 async function speichereMeine(){
   if (!A.proj || !AW.kuerzelOk(A.kz)) return;
@@ -598,7 +606,8 @@ function zeichneKollegen(){
   const zeilen = A.alle.filter(f => f.eintraege.length).map(f => { const z = AW.zeiten([f]).sum; return `<tr><td><b>${esc(f.kuerzel)}</b>${f.defekt ? ' <span class="warn">nicht lesbar</span>' : ''}</td><td class="r">${AW.fmt(z.sv1 + z.pn1)}</td><td class="r">${AW.fmt(z.sv3 + z.pn3)}</td><td class="r">${AW.fmt(z.km)}</td><td class="r">${AW.fmt(z.spesen)}</td><td class="r">${AW.fmt(z.hotelAnzahl)}</td><td class="m">${f.eintraege.length} Einträge${f.geaendert ? ' · Stand ' + esc(zeitDe(f.geaendert)) : ''}</td></tr>`; });
   box.innerHTML = `<h3>Alle Kollegen in diesem Projekt</h3>${zeilen.length ? `<table class="liste"><thead><tr><th>Kürzel</th><th class="r">Std. Ortstermin</th><th class="r">Std. Auswertung</th><th class="r">km</th><th class="r">Spesen</th><th class="r">Übern.</th><th></th></tr></thead><tbody>${zeilen.join('')}</tbody></table>` : '<p class="m">Noch keine Zeiten erfasst.</p>'}`;
 }
-function setzeKuerzel(v){
+async function setzeKuerzel(v){
+  await sichereMeine();   // Eingaben des bisherigen Kürzels gehören in dessen Datei
   A.kz = v.trim().toUpperCase(); try{ localStorage.setItem('aufwandkit-kuerzel', A.kz); }catch(e){}
   $('kz').value = A.kz;
   const f = A.alle.find(x => x.kuerzel === A.kz); A.meine = f ? f.eintraege.map(x => Object.assign({}, x)) : []; A.meineDefekt = !!(f && f.defekt);
@@ -747,12 +756,12 @@ function info(){
 $('ver').onclick = info;
 $('hilfe').onclick = info;
 $('bZentrale').onclick = () => { location.href = '../Projektzentrale/'; };
-$('bWechsel').onclick = () => { if (!A.archiv) return; A.proj = null; try{ history.replaceState(null, '', location.pathname); }catch(e){} document.title = 'AufwandKit'; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
+$('bWechsel').onclick = async () => { if (!A.archiv) return; await sichereMeine(); A.proj = null; try{ history.replaceState(null, '', location.pathname); }catch(e){} document.title = 'AufwandKit'; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
 $('bNeu').onclick = () => { if (A.proj) ladeAlles(); };
 
 $('kz').value = A.kz;
 $('kz').onchange = () => { const v = $('kz').value.trim(); if (!AW.kuerzelOk(v)){ status('Kürzel: 1–6 Buchstaben', 'err'); $('kz').value = A.kz; return; } setzeKuerzel(v); };
-window.addEventListener('beforeunload', e => { if (speichernTimer && $('status').textContent.startsWith('…')){ e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (speichernTimer || $('status').textContent.startsWith('…')){ e.preventDefault(); e.returnValue = ''; } });
 if (location.protocol === 'https:' && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
 </script>
