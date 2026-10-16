@@ -1,7 +1,7 @@
 {
   "id": "./",
-  "name": "AufwandKit – Zeiten, Proben, Abrechnung",
-  "short_name": "AufwandKit",
+  "name": "BelegKit – Zeiten, Proben, Abrechnung",
+  "short_name": "BelegKit",
   "description": "Erfasst je Projekt, was in die Rechnung gehört: Zeiten, km, Spesen, Proben aus LabelKit, Berichtsseiten und Fotos. Nichts wird hochgeladen.",
   "lang": "de",
   "start_url": "./",

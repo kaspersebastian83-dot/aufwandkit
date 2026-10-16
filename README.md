@@ -1,8 +1,10 @@
-# AufwandKit
+# BelegKit
+
+*Früher „AufwandKit“. Nur der Anzeigename hat sich geändert: Repository, Webadresse (`…/aufwandkit/`), Dateinamen (`Aufwand_<Kürzel>.json`, `_AufwandKit-Einstellungen.json`) und gespeicherte Einstellungen behalten den alten Namen – bestehende Projekte, Lesezeichen und installierte Apps funktionieren weiter.*
 
 Erfasst je Projekt, was in die Rechnung gehört – mit den Positionsnummern der Rechnung, zum Übertragen ins Rechnungsprogramm. Die Rechnung selbst (Nummer, Umsatzsteuer, Archiv) bleibt im Rechnungsprogramm.
 
-Teil der App-Familie: **Projektzentrale** (Absprung „Abrechnung → AufwandKit“), **LabelKit**, **FotoKit**, **PlanKit**. Alles läuft im Browser (Chrome oder Edge) direkt auf dem Projektordner; nichts wird hochgeladen.
+Teil der App-Familie: **Projektzentrale** (Absprung „Abrechnung → BelegKit“), **LabelKit**, **FotoKit**, **PlanKit**. Alles läuft im Browser (Chrome oder Edge) direkt auf dem Projektordner; nichts wird hochgeladen.
 
 ## Was gezählt wird
 
