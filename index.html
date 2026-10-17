@@ -336,9 +336,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const APP_DATE = '2026-10-17';
 const CHANGELOG = [
+  ['1.1.1', '17.10.2026', 'Das Kürzel wird mit LabelKit geteilt: einmal eintragen, gilt in beiden Apps. Bisher eingetragene Kürzel werden übernommen.'],
   ['1.1.0', '17.10.2026', 'Neuer Name: BelegKit (bisher AufwandKit). Webadresse, Dateien und Einstellungen bleiben unverändert – bestehende Projekte, Lesezeichen und installierte Apps funktionieren weiter.'],
   ['1.0.2', '17.10.2026', 'Fehlerbehebung: Eingaben, die noch nicht gespeichert waren, gingen verloren, wenn man direkt danach „Neu einlesen“, „Projekt wechseln“ oder ein anderes Kürzel wählte. Sie werden jetzt vorher gespeichert, in der Datei des bisherigen Kürzels. Außerdem bleibt „Einstellungen speichern“ nicht mehr gesperrt, nachdem eine zuvor unlesbare Einstellungsdatei repariert und neu eingelesen wurde.'],
   ['1.0.1', '16.10.2026', 'Aussehen wie die anderen Apps: blaue Kopfzeile mit Kurzanleitung, weiße Werkzeugleiste (Projektzentrale, Projekt wechseln, Neu einlesen, Kürzel), Firmenlogo als Wasserzeichen im Hintergrund.'],
@@ -366,7 +367,10 @@ const IMG = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i;
 
 const A = { archiv: null, proj: null, kz: '', einst: AW.einstellungen(null), einstAusDatei: false, einstGeaendert: null, meine: [], alle: [], labelkit: null, fotos: { anzahl: 0, quelle: '' },
   berichte: [], pdatei: { berichte: {} }, tab: 'zeiten', preise: false, laden: 0, schreib: Promise.resolve() };
-try{ A.kz = (localStorage.getItem('aufwandkit-kuerzel') || '').trim(); A.tab = localStorage.getItem('aufwandkit-tab') || 'zeiten'; A.preise = localStorage.getItem('aufwandkit-preise') === '1'; }catch(e){}
+/* Kürzel gemeinsam mit LabelKit („Ihr Kürzel“): einmal eintragen, überall gleich. Gemeinsamer Wert hat Vorrang; der bisherige eigene Wert bleibt als Rückfall. */
+const KZ_GEMEINSAM = 'mosaik-kuerzel';
+function kuerzelLesen(){ try{ const g = (localStorage.getItem(KZ_GEMEINSAM) || '').trim().toUpperCase(); if (g && AW.kuerzelOk(g)) return g;   /* LabelKit erlaubt längere Kürzel – hier nur 1–6 Buchstaben */ const e = (localStorage.getItem('aufwandkit-kuerzel') || '').trim().toUpperCase(); if (e && !g) localStorage.setItem(KZ_GEMEINSAM, e); return e; }catch(x){ return ''; } }
+try{ A.kz = kuerzelLesen(); A.tab = localStorage.getItem('aufwandkit-tab') || 'zeiten'; A.preise = localStorage.getItem('aufwandkit-preise') === '1'; }catch(e){}
 
 /* ---------- Dateien ---------- */
 async function unter(dir, name, anlegen){
@@ -610,7 +614,7 @@ function zeichneKollegen(){
 }
 async function setzeKuerzel(v){
   await sichereMeine();   // Eingaben des bisherigen Kürzels gehören in dessen Datei
-  A.kz = v.trim().toUpperCase(); try{ localStorage.setItem('aufwandkit-kuerzel', A.kz); }catch(e){}
+  A.kz = v.trim().toUpperCase(); try{ localStorage.setItem('aufwandkit-kuerzel', A.kz); localStorage.setItem(KZ_GEMEINSAM, A.kz); }catch(e){}
   $('kz').value = A.kz;
   const f = A.alle.find(x => x.kuerzel === A.kz); A.meine = f ? f.eintraege.map(x => Object.assign({}, x)) : []; A.meineDefekt = !!(f && f.defekt);
   if (!A.proj) return;
