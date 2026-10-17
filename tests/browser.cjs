@@ -44,6 +44,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   const base = `http://127.0.0.1:${server.address().port}/index.html`;
   const browser = await playwright[name].launch();
   const ctx = await browser.newContext({ viewport: { width: 1300, height: 900 } });
+  ctx.setDefaultTimeout(60000);   // CI-Läufer sind manchmal langsam: Wartezeiten großzügig, damit kein falscher Alarm entsteht
   if (name === 'chromium') await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);   // WebKit kennt diese Rechte nicht
   const page = await ctx.newPage();
   const errors = [];
