@@ -148,7 +148,9 @@ const AW = (() => {
   const str = v => v == null ? '' : String(v);
   const t = v => str(v).trim();
   /** Zahl wie eingegeben („7,5“, „38“) → Number; leer → 0; unlesbar → NaN. */
-  const zahl = v => { const s = t(v).replace(/\s/g, '').replace(',', '.'); if (!s) return 0; return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : NaN; };
+  /* Zahl mit Komma („7,5“) oder Punkt („7.5“). „1.250“ ist mehrdeutig (1250 oder 1,25?) und gilt wie „1.250,00“ als keine Zahl –
+     daraus wird ein Hinweis statt eines still falschen Betrags. */
+  const zahl = v => { const r = t(v).replace(/\s/g, ''); if (!r) return 0; if (/^-?\d{1,3}(\.\d{3})+$/.test(r)) return NaN; const s = r.replace(',', '.'); return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : NaN; };
   const fmt = (x, st) => { if (x == null || Number.isNaN(x)) return ''; const r = Math.round(x * 100) / 100; const d = st == null ? (Number.isInteger(r) ? 0 : (Number.isInteger(r * 10) ? 1 : 2)) : st;
     return r.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }); };
   const euro = x => x == null || Number.isNaN(x) ? '' : fmt(x, 2) + ' €';
@@ -276,6 +278,7 @@ const AW = (() => {
       if (!menge) return;
       if (!t(p.nr)) hinweise.push(`„${p.text}“ (Titel ${p.titel}) hat keine Positionsnummer – bitte in den Einstellungen eintragen.`);
       const preis = extra && extra.preis != null ? extra.preis : zahl(p.preis);
+      if (!(extra && extra.preis != null) && Number.isNaN(preis)) hinweise.push(`Preis für „${p.text}“ (Titel ${p.titel}) „${t(p.preis)}“ ist keine Zahl – bitte in den Einstellungen ohne Tausenderpunkt eintragen (z. B. 1250,00).`);
       zeilen[p.titel].push({ key, nr: t(p.nr), text: p.text, menge, einheit: t(p.einheit), preis: preis || null, gesamt: preis ? Math.round(menge * preis * 100) / 100 : null, quelle, zusatz: extra && extra.zusatz || '' });
     };
     const s = z.sum;
@@ -300,9 +303,11 @@ const AW = (() => {
     if (!ber.length) hinweise.push('Kein Bericht zur Abrechnung ausgewählt (Reiter „Bericht & Fotos“).');
     const fotos = o.fotos && o.fotos.anzahl || 0;
     const sz = E.saetze || {}, ps = zahl(sz.seite), pf = zahl(sz.foto), pp = zahl(sz.pauschale);
+    for (const [w, label] of [[ps, '€ je Berichtsseite'], [pf, '€ je Foto'], [pp, 'fester Anteil €']]) if (Number.isNaN(w)) hinweise.push(`Satz „${label}“ ist keine Zahl – bitte in den Einstellungen ohne Tausenderpunkt eintragen.`);
     if (seiten || fotos){
-      const betrag = (ps || pf || pp) ? Math.round(((ps || 0) * seiten + (pf || 0) * fotos + (pp || 0)) * 100) / 100 : null;
-      if (betrag == null) hinweise.push('Sätze für 3.002 (€ je Seite / je Foto) fehlen in den Einstellungen – Menge wird ohne Betrag ausgegeben.');
+      const ungueltig = [ps, pf, pp].some(Number.isNaN);
+      const betrag = !ungueltig && (ps || pf || pp) ? Math.round(((ps || 0) * seiten + (pf || 0) * fotos + (pp || 0)) * 100) / 100 : null;
+      if (betrag == null && !ungueltig) hinweise.push('Sätze für 3.002 (€ je Seite / je Foto) fehlen in den Einstellungen – Menge wird ohne Betrag ausgegeben.');
       zeile('neben', 1, `${seiten} Berichtsseite${seiten === 1 ? '' : 'n'}${offen ? ` (${offen} Bericht${offen === 1 ? '' : 'e'} ohne Seitenzahl)` : ''}, ${fotos} Foto${fotos === 1 ? '' : 's'}`, { preis: betrag });
     }
     const titelText = { 1: (E.titel[1] || TITEL[1]) + (z.sum.ortstermine.size ? ' ' + terminText([...z.sum.ortstermine]) : '') + '\nZeitaufwand', 2: E.titel[2] || TITEL[2], 3: E.titel[3] || TITEL[3] };
@@ -339,9 +344,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 const APP_DATE = '2026-10-17';
 const CHANGELOG = [
+  ['1.3.1', '17.10.2026', 'Zahlen mit Tausenderpunkt („1.250“, „1.250,00“) werden nicht mehr still falsch gelesen (bisher wurde aus „1.250“ 1,25), sondern als Hinweis gemeldet. Ein Preis oder Satz, der keine Zahl ist, erscheint jetzt als Hinweis statt einfach zu fehlen. Leiste: Das Projektmenü bleibt offen, während die Leiste sich im Hintergrund aktualisiert.'],
   ['1.3.0', '17.10.2026', 'Neue schmale Leiste oben, in allen vier Apps gleich: Projekt mit Wechsel zu den zuletzt geöffneten, die vier Arbeitsschritte (LabelKit, FotoKit, PlanKit, BelegKit) mit Haken bei erledigten Schritten, und ein Knopf „Weiter: …“ zum nächsten offenen Schritt – öffnet die App mit demselben Projekt. Ohne geöffnetes Projekt bietet die Leiste „Weiter mit <zuletzt geöffnetes Projekt>“ an. Die Leiste liest den Projektordner nur und schreibt nie hinein; ohne Ordnerrecht (oder in Safari) fehlen nur die Haken.'],
   ['1.2.0', '17.10.2026', 'Projektdaten aus der Projektzentrale (Objekt, Auftraggeber, Schaden-Nr.) stehen oben auf jeder Seite – nur zur Ansicht, geändert wird in der Projektzentrale. Sie erscheinen auch im gespeicherten Stand (JSON und CSV); „_Projekt.json“ steht mit Prüfsumme bei den Quellen.'],
   ['1.1.1', '17.10.2026', 'Das Kürzel wird mit LabelKit geteilt: einmal eintragen, gilt in beiden Apps. Bisher eingetragene Kürzel werden übernommen.'],
@@ -980,6 +986,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     }
   }
   async function aktualisieren(){
+    if (pop) return;   // Menü offen: nicht neu zeichnen (würde es schließen); der nächste Durchlauf holt das nach
     var mein = ++lauf, n = urlName();
     if (n !== name){ name = n; stand = null; }
     try{ zuletzt = (await kvGet('zuletzt')) || []; if (!Array.isArray(zuletzt)) zuletzt = []; }catch(e){ zuletzt = []; }
