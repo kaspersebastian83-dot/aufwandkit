@@ -64,6 +64,9 @@ button.hbadge:hover{background:rgba(255,255,255,.26);color:#fff;border-color:rgb
 #banner.show{display:block} #banner.err{background:color-mix(in srgb,var(--err) 12%,var(--panel))}
 #support{display:none;background:color-mix(in srgb,var(--err) 12%,var(--panel));padding:10px 20px}
 main{max-width:1180px;margin:0 auto;padding:14px 16px 60px}
+.pjband{display:flex;gap:4px 18px;flex-wrap:wrap;align-items:baseline;margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;background:var(--panel2);font-size:13px}
+.pjband b{font-weight:600}.pjband .k{color:var(--muted)}
+.pjband .hint{color:var(--muted);flex-basis:100%;font-size:12px}
 .tabs{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .tabs button[role=tab]{border-radius:16px;padding:5px 14px}
 .tabs button[aria-selected=true]{background:var(--primary);border-color:var(--primary);color:#fff;font-weight:600}
@@ -336,9 +339,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.2.0';
 const APP_DATE = '2026-10-17';
 const CHANGELOG = [
+  ['1.2.0', '17.10.2026', 'Projektdaten aus der Projektzentrale (Objekt, Auftraggeber, Schaden-Nr.) stehen oben auf jeder Seite – nur zur Ansicht, geändert wird in der Projektzentrale. Sie erscheinen auch im gespeicherten Stand (JSON und CSV); „_Projekt.json“ steht mit Prüfsumme bei den Quellen.'],
   ['1.1.1', '17.10.2026', 'Das Kürzel wird mit LabelKit geteilt: einmal eintragen, gilt in beiden Apps. Bisher eingetragene Kürzel werden übernommen.'],
   ['1.1.0', '17.10.2026', 'Neuer Name: BelegKit (bisher AufwandKit). Webadresse, Dateien und Einstellungen bleiben unverändert – bestehende Projekte, Lesezeichen und installierte Apps funktionieren weiter.'],
   ['1.0.2', '17.10.2026', 'Fehlerbehebung: Eingaben, die noch nicht gespeichert waren, gingen verloren, wenn man direkt danach „Neu einlesen“, „Projekt wechseln“ oder ein anderes Kürzel wählte. Sie werden jetzt vorher gespeichert, in der Datei des bisherigen Kürzels. Außerdem bleibt „Einstellungen speichern“ nicht mehr gesperrt, nachdem eine zuvor unlesbare Einstellungsdatei repariert und neu eingelesen wurde.'],
@@ -486,6 +490,10 @@ async function ladeAlles(){
   A.meineDefekt = !!(mein && mein.defekt);
   try{ const j = await liesJson(abr, PROJ_DATEI); A.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; A.pdateiGesperrt = false; }
   catch(e){ fehler.push(e.message); A.pdatei = { berichte: {} }; A.pdateiGesperrt = true; }
+  // Gemeinsame Projektdaten (Projektzentrale): nur lesen und anzeigen – bearbeitet wird in der Projektzentrale
+  A.pj = null;
+  try{ const j = await liesJson(A.proj.dir, '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') A.pj = j.daten; }
+  catch(e){ fehler.push(e.message); }
   // LabelKit: neueste …_Daten.json
   A.labelkit = null;
   const lab = await unter(A.proj.dir, ORDNER.lab, false);
@@ -568,10 +576,20 @@ async function speichereEinst(){
 /* ---------- Zeichnen ---------- */
 const TABS = [['zeiten', 'Meine Zeiten'], ['proben', 'Proben'], ['bericht', 'Bericht & Fotos'], ['abrechnung', 'Abrechnung'], ['einst', 'Einstellungen']];
 function knoepfe(){ $('bWechsel').disabled = !A.archiv; $('bNeu').disabled = !A.proj; }
+/** Projektdaten aus _Projekt.json (nur Anzeige): Objekt, Auftraggeber, Schaden-Nr. */
+function projektdaten(){
+  const d = A.pj || {}, t = k => String(d[k] == null ? '' : d[k]).trim();
+  return { objekt: t('objekt'), auftraggeber: t('auftraggeber'), schadennummer: t('schadennummer') };
+}
+function pjBand(){
+  const d = projektdaten(), teile = [['Objekt', d.objekt], ['Auftraggeber', d.auftraggeber], ['Schaden-Nr.', d.schadennummer]].filter(x => x[1]);
+  if (!teile.length) return A.tab === 'abrechnung' ? `<div class="pjband" id="pjBand"><span class="hint">Noch keine Projektdaten (Objekt, Auftraggeber, Schaden-Nr.) – in der Projektzentrale ergänzen, dann stehen sie hier und im Stand der Abrechnung.</span></div>` : '';
+  return `<div class="pjband" id="pjBand" title="Aus den Projektdaten der Projektzentrale – dort ändern">${teile.map(([k, v]) => `<span><span class="k">${k}</span> <b>${esc(v)}</b></span>`).join('')}</div>`;
+}
 function zeichne(){
   knoepfe();
   if (!A.proj) return;
-  $('inhalt').innerHTML = `<nav class="tabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${A.tab === k}">${l}</button>`).join('')}
+  $('inhalt').innerHTML = `${pjBand()}<nav class="tabs" role="tablist">${TABS.map(([k, l]) => `<button role="tab" data-tab="${k}" aria-selected="${A.tab === k}">${l}</button>`).join('')}
 </nav><section id="seite"></section>`;
   $('inhalt').querySelector('.tabs').onclick = e => { const b = e.target.closest('button[data-tab]'); if (!b) return; A.tab = b.dataset.tab; try{ localStorage.setItem('aufwandkit-tab', A.tab); }catch(x){} zeichne(); };
   zeichneSeite();
@@ -689,6 +707,7 @@ async function standSpeichern(a){
   status('… Prüfsummen werden berechnet');
   const quellen = [], hash = async (pfad, file) => quellen.push({ datei: pfad, bytes: file.size, geaendert: new Date(file.lastModified).toISOString(), sha256: await sha256Hex(await file.arrayBuffer()) });
   const abr = await unter(A.proj.dir, ORDNER.abr, true);
+  try{ await hash('_Projekt.json', await (await A.proj.dir.getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
   for await (const h of abr.values()) if (h.kind === 'file' && (/^Aufwand_.*\.json$/.test(h.name) || h.name === PROJ_DATEI)) await hash(ORDNER.abr + '/' + h.name, await h.getFile());
   if (A.labelkit) await hash(ORDNER.lab + '/' + A.labelkit.datei.name, A.labelkit.datei);
   const fo = await unter(A.proj.dir, ORDNER.fotos, false); if (fo) try{ await hash(ORDNER.fotos + '/_Bildumbenenner.json', await (await fo.getFileHandle('_Bildumbenenner.json')).getFile()); }catch(e){}
@@ -705,9 +724,9 @@ async function standSpeichern(a){
   }
   const jetzt = new Date().toISOString();
   await schreibJson(abr, json, { format: 'aufwandkit-stand', version: 1, projekt: A.proj.name, erstellt: jetzt, von: A.kz.toUpperCase(), programm: APP_NAME + ' ' + APP_VERSION,
-    titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
+    projektdaten: projektdaten(), titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
   const w = await (await abr.getFileHandle(csvName, { create: true })).createWritable();
-  await w.write(AW.csv(a, [['Projekt', A.proj.name], ['Stand', `${zeitDe(jetzt)} (${A.kz.toUpperCase()}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
+  await w.write(AW.csv(a, [['Projekt', A.proj.name], ...[['Objekt', projektdaten().objekt], ['Auftraggeber', projektdaten().auftraggeber], ['Schaden-Nr. des Auftraggebers', projektdaten().schadennummer]].filter(x => x[1]), ['Stand', `${zeitDe(jetzt)} (${A.kz.toUpperCase()}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
   status(`✓ Stand gespeichert: „${ORDNER.abr}/${json}“ und „${csvName}“`, 'ok');
 }
 
