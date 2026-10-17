@@ -1,4 +1,4 @@
-// AufwandKit – Logik ohne Browser: Kategorien aus LabelKit, Zeiten, Positionen wie in Rechnung 202600542, Hinweise, Seiten, Ausgabe.
+// BelegKit – Logik ohne Browser: Kategorien aus LabelKit, Zeiten, Positionen wie in Rechnung 202600542, Hinweise, Seiten, Ausgabe.
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
@@ -127,4 +127,4 @@ assert.equal(AW.dateiname('26.0389', 'Aufwand', '2026-09-16', 'json', ['26-0389_
 assert.equal(AW.zahl('7,5'), 7.5); assert.equal(AW.zahl(''), 0); assert.ok(Number.isNaN(AW.zahl('1.000,5')));
 assert.equal(AW.kuerzelOk('SK'), true); assert.equal(AW.kuerzelOk('S K'), false); assert.equal(AW.kuerzelOk('../x'), false);
 
-console.log('AufwandKit Logik: alle Prüfungen bestanden');
+console.log('BelegKit Logik: alle Prüfungen bestanden');

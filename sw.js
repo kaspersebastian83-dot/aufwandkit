@@ -1,4 +1,4 @@
-/* AufwandKit – Service Worker
+/* BelegKit – Service Worker
    Makes the online version usable offline and installable.
    Strategy "network first": when online, always the newest version from GitHub Pages is loaded (so updates arrive
    immediately); when offline or the network is slow (> 4 s), the last cached version is used.

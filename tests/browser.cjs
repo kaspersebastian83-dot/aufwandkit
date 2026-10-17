@@ -1,4 +1,4 @@
-// AufwandKit im echten Browser: node tests/browser.cjs [chromium|webkit]
+// BelegKit im echten Browser: node tests/browser.cjs [chromium|webkit]
 // Archivordner mit einem Projekt wird im Origin Private File System nachgebildet (LabelKit-Datei, Fotos, Bericht als .docx und .pdf).
 // WebKit kann keine Ordner beschreiben – dort wird nur geprüft, dass die Seite fehlerfrei lädt und den Hinweis zeigt.
 process.env.TZ = 'Europe/Berlin';
@@ -222,6 +222,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
 })().catch(e => {
   console.error(e);
   const text = String(e && e.stack || e).slice(0, 1500).replace(/%/g, '%25').replace(/\r/g, '').replace(/\n/g, '%0A');
-  console.log(`::error title=Browsertest AufwandKit ${name}::${text}`);
+  console.log(`::error title=Browsertest BelegKit ${name}::${text}`);
   process.exit(1);
 });
