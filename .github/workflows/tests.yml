@@ -45,3 +45,5 @@ jobs:
           "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps ${{ matrix.browser }}
       - name: BelegKit in the real browser
         run: node tests/browser.cjs ${{ matrix.browser }}
+      - name: Mosaik bar (project, steps, next step) in the real browser
+        run: node tests/leiste-browser.cjs ${{ matrix.browser }}

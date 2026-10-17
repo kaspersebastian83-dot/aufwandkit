@@ -339,9 +339,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const APP_DATE = '2026-10-17';
 const CHANGELOG = [
+  ['1.3.0', '17.10.2026', 'Neue schmale Leiste oben, in allen vier Apps gleich: Projekt mit Wechsel zu den zuletzt geöffneten, die vier Arbeitsschritte (LabelKit, FotoKit, PlanKit, BelegKit) mit Haken bei erledigten Schritten, und ein Knopf „Weiter: …“ zum nächsten offenen Schritt – öffnet die App mit demselben Projekt. Ohne geöffnetes Projekt bietet die Leiste „Weiter mit <zuletzt geöffnetes Projekt>“ an. Die Leiste liest den Projektordner nur und schreibt nie hinein; ohne Ordnerrecht (oder in Safari) fehlen nur die Haken.'],
   ['1.2.0', '17.10.2026', 'Projektdaten aus der Projektzentrale (Objekt, Auftraggeber, Schaden-Nr.) stehen oben auf jeder Seite – nur zur Ansicht, geändert wird in der Projektzentrale. Sie erscheinen auch im gespeicherten Stand (JSON und CSV); „_Projekt.json“ steht mit Prüfsumme bei den Quellen.'],
   ['1.1.1', '17.10.2026', 'Das Kürzel wird mit LabelKit geteilt: einmal eintragen, gilt in beiden Apps. Bisher eingetragene Kürzel werden übernommen.'],
   ['1.1.0', '17.10.2026', 'Neuer Name: BelegKit (bisher AufwandKit). Webadresse, Dateien und Einstellungen bleiben unverändert – bestehende Projekte, Lesezeichen und installierte Apps funktionieren weiter.'],
@@ -464,6 +465,7 @@ async function oeffne(name){
   const p = parseProj(name) || { nr: name, ort: '' };
   A.proj = { name, nr: p.nr, ort: p.ort, dir };
   try{ history.replaceState(null, '', '?projekt=' + encodeURIComponent(name)); }catch(e){}
+  try{ window.MosaikLeiste && MosaikLeiste.aktualisieren(); }catch(e){}
   document.title = `${p.nr} · ${APP_NAME}`;
   $('projekt').textContent = `${A.archiv.name} › ${name}`;
   await ladeAlles();
@@ -790,5 +792,227 @@ window.addEventListener('beforeunload', e => { if (speichernTimer || $('status')
 if (location.protocol === 'https:' && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
 </script>
+<!-- MOSAIK-LEISTE:BEGIN -->
+<script>
+/* ===== MOSAIK-LEISTE v1 – in allen Apps der Familie identisch halten (LabelKit, FotoKit, PlanKit, BelegKit) =====
+   Schmale Leiste oben: Projekt (mit Wechsel zu den zuletzt benutzten), die vier Arbeitsschritte mit Haken und nächstem Schritt,
+   „Weiter“-Knopf. Ohne geöffnetes Projekt: „Mit <letztes Projekt> weitermachen“.
+   Teilt sich mit den anderen Apps nur den Browser-Speicher: IndexedDB „mosaik-suite“ / „kv“, Schlüssel „archiv“ (Ordner-Handle)
+   und „zuletzt“ (Liste der zuletzt geöffneten Projektnamen). Liest den Ordner nur, schreibt nie hinein und fragt nie selbst
+   nach Ordnerrechten – ohne Recht (oder ohne Ordnerzugriff, z. B. Safari) fehlen nur die Haken. Aufruf: MosaikLeiste.start('label'|'fotos'|'plan'|'beleg'[, {kompakt: true}]),
+   danach MosaikLeiste.aktualisieren() nach dem Öffnen oder Wechseln eines Projekts. */
+(function(){
+  if (window.MosaikLeiste) return;
+  var APPS = [
+    ['label', 'LabelKit',  'labelkit',       '../labelkit/',       '#5469b8'],
+    ['fotos', 'FotoKit',   'bildumbenenner', '../Bildumbenenner/', '#2f87a6'],
+    ['plan',  'PlanKit',   'plankit',        '../Probenplan/',     '#4179b2'],
+    ['beleg', 'BelegKit',  'aufwandkit',     '../aufwandkit/',     '#2f7d6d']
+  ];
+  var ZENTRALE = '../Projektzentrale/', MAX = 6;
+  var ich = '', kompakt = false, name = '', stand = null, zuletzt = [], bar = null, pop = null, timer = 0, lauf = 0;
+  var nfc = function(s){ try{ return String(s).normalize('NFC'); }catch(e){ return String(s); } };
+  var h = function(tag, attrs){
+    var el = document.createElement(tag);
+    for (var k in (attrs || {})){ if (k === 'text') el.textContent = attrs[k]; else el.setAttribute(k, attrs[k]); }
+    for (var i = 2; i < arguments.length; i++) if (arguments[i]) el.appendChild(arguments[i]);
+    return el;
+  };
+  function idb(){
+    return new Promise(function(res){
+      try{
+        var r = indexedDB.open('mosaik-suite', 1);
+        r.onupgradeneeded = function(){ r.result.createObjectStore('kv'); };
+        r.onsuccess = function(){ res(r.result); }; r.onerror = function(){ res(null); };
+      }catch(e){ res(null); }
+    });
+  }
+  function kvGet(key){
+    return idb().then(function(db){ return new Promise(function(res){
+      if (!db) return res(null);
+      try{ var g = db.transaction('kv').objectStore('kv').get(key); g.onsuccess = function(){ db.close(); res(g.result == null ? null : g.result); }; g.onerror = function(){ db.close(); res(null); }; }
+      catch(e){ res(null); }
+    }); });
+  }
+  function kvSet(key, val){
+    return idb().then(function(db){ return new Promise(function(res){
+      if (!db) return res(false);
+      try{ var t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(val, key); t.oncomplete = function(){ db.close(); res(true); }; t.onerror = t.onabort = function(){ db.close(); res(false); }; }
+      catch(e){ res(false); }
+    }); });
+  }
+  function urlName(){ try{ return new URLSearchParams(location.search).get('projekt') || ''; }catch(e){ return ''; } }
+  function href(app, projekt){ return (app[0] === ich ? '' : app[3]) + (projekt ? '?projekt=' + encodeURIComponent(projekt) : ''); }   // die eigene App relativ zur aktuellen Seite (auch ohne den Pfad /<App>/)
+
+  /* Ordnerstand: nur Namen prüfen, Fotos nur über die eine Datei (der Ordner kann tausende Bilder enthalten) */
+  function unterordner(proj, wunsch){
+    var w = nfc(wunsch).toLowerCase();
+    return (async function(){
+      for await (var e of proj.values()) if (e.kind === 'directory' && nfc(e.name).toLowerCase() === w) return e;
+      return null;
+    })();
+  }
+  async function ordnerStand(){
+    var arch = await kvGet('archiv');
+    if (!arch || !arch.queryPermission) return null;
+    if ((await arch.queryPermission({ mode: 'read' })) !== 'granted') return null;
+    var proj = null;
+    try{ proj = await arch.getDirectoryHandle(name); }catch(e){}
+    if (!proj){
+      try{ for await (var e of arch.values()) if (e.kind === 'directory' && nfc(e.name) === nfc(name)){ proj = e; break; } }catch(e2){}
+    }
+    if (!proj) return null;
+    var s = { label: false, fotos: false, plan: false, beleg: false, objekt: '' };
+    try{
+      var pj = await proj.getFileHandle('_Projekt.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); }).catch(function(){ return ''; });
+      if (pj){ var j = JSON.parse(pj); if (j && j.daten && typeof j.daten.objekt === 'string') s.objekt = j.daten.objekt.trim(); }
+    }catch(e3){}
+    try{ var fo = await unterordner(proj, 'Fotos'); if (fo) s.fotos = await fo.getFileHandle('_Bildumbenenner.json').then(function(){ return true; }, function(){ return false; }); }catch(e4){}
+    try{
+      var la = await unterordner(proj, 'Laboraufträge');
+      if (la) for await (var f of la.values()) if (f.kind === 'file' && /_Daten\.json$/i.test(f.name)){ s.label = true; break; }
+    }catch(e5){}
+    try{
+      var pl = await unterordner(proj, 'Pläne');
+      if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung) [^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
+    }catch(e6){}
+    try{
+      var ab = await unterordner(proj, 'Abrechnung');
+      if (ab) for await (var k of ab.values()) if (k.kind === 'file' && /_Aufwand_.*\.json$/i.test(k.name)){ s.beleg = true; break; }
+    }catch(e7){}
+    return s;
+  }
+  function naechster(){
+    if (!stand) return null;
+    var i0 = APPS.findIndex(function(a){ return a[0] === ich; }), n = APPS.length;
+    for (var d = 1; d < n; d++){ var a = APPS[(i0 + d) % n]; if ((i0 + d) < n && !stand[a[0]]) return a; }   // zuerst ein späterer Schritt …
+    for (var e = 1; e < n; e++){ var b = APPS[(i0 + e) % n]; if ((i0 + e) >= n && !stand[b[0]]) return b; }   // … sonst der erste offene davor
+    return null;
+  }
+  function css(){
+    if (document.getElementById('mosaikLeisteCss')) return;
+    var st = h('style', { id: 'mosaikLeisteCss' });
+    st.textContent =
+            '#mosaikLeiste{position:relative;flex:none;box-sizing:border-box;width:100%;height:36px;z-index:2147483000;display:flex;align-items:center;gap:6px;padding:0 10px;background:#17222c;color:#e8eef3;font:12.5px/1 "Segoe UI",system-ui,-apple-system,Arial,sans-serif;box-shadow:0 1px 0 rgba(255,255,255,.08) inset,0 1px 6px rgba(0,0,0,.25);white-space:nowrap}' +
+      '#mosaikLeiste a,#mosaikLeiste button{font:inherit;color:inherit;text-decoration:none;border:0;background:none;cursor:pointer;padding:0;margin:0;min-height:0;border-radius:6px;box-shadow:none}' +
+      '#mosaikLeiste .ml-home,#mosaikLeiste .ml-proj{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;color:#c9d6df}' +
+      '#mosaikLeiste .ml-home:hover,#mosaikLeiste .ml-proj:hover,#mosaikLeiste .ml-proj[aria-expanded=true]{background:rgba(255,255,255,.1);color:#fff}' +
+      '#mosaikLeiste .ml-proj b{color:#fff;font-weight:650}#mosaikLeiste .ml-obj{color:#9fb1be;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;max-width:34ch}' +
+      '#mosaikLeiste .ml-sp{flex:1 1 0;min-width:4px}' +
+      '#mosaikLeiste .ml-steps{display:flex;align-items:center;gap:2px}' +
+      '#mosaikLeiste .ml-step{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;color:#b9c8d3;position:relative}' +
+      '#mosaikLeiste a.ml-step:hover{background:rgba(255,255,255,.1);color:#fff}' +
+      '#mosaikLeiste .ml-step i{width:16px;height:16px;border-radius:50%;display:inline-grid;place-items:center;font:700 9.5px/1 inherit;font-style:normal;border:1.5px solid var(--ac);color:var(--ac)}' +
+      '#mosaikLeiste .ml-step.done i{background:var(--ac);color:#0f1820}' +
+      '#mosaikLeiste .ml-step.next i{box-shadow:0 0 0 3px color-mix(in srgb,var(--ac) 35%,transparent)}' +
+      '#mosaikLeiste .ml-step.hier{background:rgba(255,255,255,.14);color:#fff;font-weight:650;cursor:default}' +
+      '#mosaikLeiste .ml-weiter{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;background:var(--ac);color:#fff;font-weight:650}' +
+      '#mosaikLeiste .ml-weiter:hover{filter:brightness(1.12)}' +
+      '#mosaikLeiste .ml-hinweis{color:#9fb1be}' +
+      '#mosaikLeistePop{position:fixed;top:40px;left:8px;z-index:2147483001;min-width:260px;max-width:min(92vw,420px);background:#fff;color:#1b2a35;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:6px;font:13px/1.35 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}' +
+      '#mosaikLeistePop h6{margin:6px 10px 4px;font:600 10.5px/1 inherit;letter-spacing:.06em;text-transform:uppercase;color:#6a7c89}' +
+      '#mosaikLeistePop a{display:block;padding:8px 10px;border-radius:7px;color:inherit;text-decoration:none}#mosaikLeistePop a:hover,#mosaikLeistePop a:focus-visible{background:#eaf1f6;outline:0}' +
+      '#mosaikLeistePop a.aktuell{font-weight:650;background:#f2f6f9}#mosaikLeistePop hr{border:0;border-top:1px solid #e2e9ee;margin:5px 4px}' +
+      '#mosaikLeiste.ml-kompakt{height:24px;font-size:12px;padding:0 8px}#mosaikLeiste.ml-kompakt .ml-home,#mosaikLeiste.ml-kompakt .ml-proj,#mosaikLeiste.ml-kompakt .ml-step,#mosaikLeiste.ml-kompakt .ml-weiter{height:20px;padding:0 7px}#mosaikLeiste.ml-kompakt .ml-step i{width:14px;height:14px;font-size:9px}#mosaikLeistePop{top:30px}' +
+      '@media (max-width:860px){#mosaikLeiste .ml-obj,#mosaikLeiste .ml-step span{display:none}#mosaikLeiste .ml-step.hier span{display:inline}}' +
+      '@media (max-width:560px){#mosaikLeiste .ml-home span,#mosaikLeiste .ml-weiter span{display:none}#mosaikLeiste .ml-step.hier span{display:none}}' +
+      '@media print{#mosaikLeiste,#mosaikLeistePop{display:none!important}}';
+    document.head.appendChild(st);
+  }
+  function schliessePop(){ if (pop){ pop.remove(); pop = null; } var b = bar && bar.querySelector('.ml-proj'); if (b) b.setAttribute('aria-expanded', 'false'); }
+  function oeffnePop(btn){
+    if (pop) return schliessePop();
+    pop = h('div', { id: 'mosaikLeistePop', role: 'menu' });
+    var app = APPS.filter(function(a){ return a[0] === ich; })[0];
+    var rest = zuletzt.filter(function(n){ return nfc(n) !== nfc(name); });
+    if (name) pop.appendChild(h('h6', { text: 'Aktuelles Projekt' })), pop.appendChild(h('a', { class: 'aktuell', href: href(app, name), text: name, role: 'menuitem' }));
+    if (rest.length){ pop.appendChild(h('h6', { text: 'Zuletzt geöffnet' })); rest.forEach(function(n){ pop.appendChild(h('a', { href: href(app, n), text: n, role: 'menuitem' })); }); }
+    pop.appendChild(h('hr'));
+    pop.appendChild(h('a', { href: ZENTRALE, target: 'projektzentrale', text: 'Alle Projekte … (Projektzentrale)', role: 'menuitem' }));
+    document.body.appendChild(pop);
+    var r = btn.getBoundingClientRect(); pop.style.left = Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8)) + 'px'; pop.style.top = (r.bottom + 4) + 'px';
+    btn.setAttribute('aria-expanded', 'true');
+    var erste = pop.querySelector('a'); if (erste) erste.focus();
+  }
+  function zeichne(){
+    css();
+    if (!bar){
+      bar = h('div', { id: 'mosaikLeiste', class: kompakt ? 'ml-kompakt' : '', role: 'navigation', 'aria-label': 'Projekt und Arbeitsschritte' });
+      document.body.insertBefore(bar, document.body.firstChild);
+    }
+    schliessePop();
+    bar.textContent = '';
+    var app = APPS.filter(function(a){ return a[0] === ich; })[0] || APPS[0];
+    bar.style.setProperty('--ac', app[4]);
+    bar.appendChild(h('a', { class: 'ml-home', href: ZENTRALE, target: 'projektzentrale', title: 'Alle Projekte (Projektzentrale)' }, h('b', { text: '⌂', 'aria-hidden': 'true' }), h('span', { text: 'Projektzentrale' })));
+    if (name){
+      var pb = h('button', { class: 'ml-proj', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Anderes Projekt öffnen' }, h('b', { text: name }), h('span', { text: '▾', 'aria-hidden': 'true' }));
+      pb.onclick = function(ev){ ev.stopPropagation(); oeffnePop(pb); };
+      bar.appendChild(pb);
+      if (stand && stand.objekt) bar.appendChild(h('span', { class: 'ml-obj', text: stand.objekt, title: stand.objekt }));
+      bar.appendChild(h('span', { class: 'ml-sp' }));
+      var steps = h('span', { class: 'ml-steps' });
+      var nx = naechster();
+      APPS.forEach(function(a, i){
+        var done = !!(stand && stand[a[0]]), cls = 'ml-step' + (done ? ' done' : '') + (nx && nx[0] === a[0] ? ' next' : '') + (a[0] === ich ? ' hier' : '');
+        var ic = h('i', { text: done ? '✓' : String(i + 1), 'aria-hidden': 'true' }), sp = h('span', { text: a[1] });
+        var t = a[1] + (done ? ' – erledigt' : '') + (a[0] === ich ? ' (diese App)' : '');
+        var el = a[0] === ich ? h('span', { class: cls, 'aria-current': 'page', title: t }, ic, sp) : h('a', { class: cls, href: href(a, name), target: a[2], title: t }, ic, sp);
+        el.style.setProperty('--ac', a[4]); steps.appendChild(el);
+      });
+      bar.appendChild(steps);
+      if (nx){
+        var w = h('a', { class: 'ml-weiter', href: href(nx, name), target: nx[2], title: 'Nächster offener Schritt dieses Projekts' }, h('span', { text: 'Weiter: ' + nx[1] }), h('b', { text: '→', 'aria-hidden': 'true' }));
+        w.style.setProperty('--ac', nx[4]); bar.appendChild(w);
+      }
+    }else{
+      var l = zuletzt[0];
+      bar.appendChild(h('span', { class: 'ml-hinweis', text: l ? 'Kein Projekt geöffnet.' : 'Projekte öffnen Sie über die Projektzentrale.' }));
+      if (l){
+        var wl = h('a', { class: 'ml-weiter', href: href(app, l), title: 'Öffnet dieses Projekt in dieser App' }, h('span', { text: 'Weiter mit ' + l }), h('b', { text: '→', 'aria-hidden': 'true' }));
+        wl.style.setProperty('--ac', app[4]); bar.appendChild(wl);
+      }
+      bar.appendChild(h('span', { class: 'ml-sp' }));
+      if (zuletzt.length > 1){
+        var an = h('button', { class: 'ml-proj', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, h('span', { text: 'Anderes Projekt' }), h('span', { text: '▾', 'aria-hidden': 'true' }));
+        an.onclick = function(ev){ ev.stopPropagation(); oeffnePop(an); }; bar.appendChild(an);
+      }
+    }
+  }
+  async function aktualisieren(){
+    var mein = ++lauf, n = urlName();
+    if (n !== name){ name = n; stand = null; }
+    try{ zuletzt = (await kvGet('zuletzt')) || []; if (!Array.isArray(zuletzt)) zuletzt = []; }catch(e){ zuletzt = []; }
+    if (name && nfc(zuletzt[0] || '') !== nfc(name)){
+      zuletzt = [name].concat(zuletzt.filter(function(x){ return nfc(x) !== nfc(name); })).slice(0, MAX);
+      kvSet('zuletzt', zuletzt);
+    }
+    if (mein !== lauf) return;
+    zeichne();
+    if (!name) return;
+    var s = null; try{ s = await ordnerStand(); }catch(e){ s = null; }
+    if (mein !== lauf) return;
+    var alt = JSON.stringify(stand); stand = s;
+    if (JSON.stringify(s) !== alt) zeichne();
+  }
+  function start(appId, opt){
+    ich = appId; kompakt = !!(opt && opt.kompakt);
+    var los = function(){
+      aktualisieren();
+      window.addEventListener('focus', aktualisieren);
+      document.addEventListener('visibilitychange', function(){ if (!document.hidden) aktualisieren(); });
+      window.addEventListener('popstate', aktualisieren);
+      document.addEventListener('click', function(ev){ if (pop && !pop.contains(ev.target)) schliessePop(); });
+      document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && pop){ var b = bar.querySelector('.ml-proj'); schliessePop(); if (b) b.focus(); } });
+      timer = setInterval(function(){ if (!document.hidden) aktualisieren(); }, 20000);
+    };
+    if (document.body) los(); else document.addEventListener('DOMContentLoaded', los);
+  }
+  window.MosaikLeiste = { start: start, aktualisieren: aktualisieren };
+})();
+/* ===== Ende MOSAIK-LEISTE v1 ===== */
+MosaikLeiste.start('beleg');
+</script>
+<!-- MOSAIK-LEISTE:END -->
 </body>
 </html>
