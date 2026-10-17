@@ -83,6 +83,9 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln';
   await leiste.locator('.ml-proj').click();
   const pop = page.locator('#mosaikLeistePop');
   assert.match(await pop.textContent(), /26\.0150 Köln/); assert.match(await pop.textContent(), /Alle Projekte/);
+  // Aktualisierung im Hintergrund (alle 20 s, beim Fensterwechsel) schließt das offene Menü nicht
+  await page.evaluate(() => window.MosaikLeiste.aktualisieren()); await page.waitForTimeout(150);
+  assert.equal(await pop.count(), 1, 'Menü bleibt bei Aktualisierung offen');
   assert.match(await pop.locator('a', {hasText: B}).getAttribute('href'), /\?projekt=26\.0150%20K%C3%B6ln$/);
   await page.keyboard.press('Escape');
   assert.equal(await pop.count(), 0);

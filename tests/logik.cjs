@@ -125,6 +125,21 @@ assert.match(csv, /3;3\.002;Schreib-, Versand- und Nebenkosten, Fotos etc\.;1;ps
 assert.equal(AW.dateiname('26.0389', 'Aufwand', '2026-09-16', 'json', []), '26-0389_Aufwand_2026-09-16.json');
 assert.equal(AW.dateiname('26.0389', 'Aufwand', '2026-09-16', 'json', ['26-0389_Aufwand_2026-09-16.JSON']), '26-0389_Aufwand_2026-09-16_2.json');
 assert.equal(AW.zahl('7,5'), 7.5); assert.equal(AW.zahl(''), 0); assert.ok(Number.isNaN(AW.zahl('1.000,5')));
+// Tausenderpunkt: mehrdeutig → keine Zahl (Hinweis), nicht still 1,25
+assert.ok(Number.isNaN(AW.zahl('1.250'))); assert.ok(Number.isNaN(AW.zahl('12.500'))); assert.equal(AW.zahl('1.5'), 1.5); assert.equal(AW.zahl('0,75'), 0.75); assert.equal(AW.zahl('1250'), 1250);
+// Preis und Satz, die keine Zahl sind: Hinweis, kein stiller Teilbetrag
+{
+  const E4 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '7,50', foto: '1.250', pauschale: '' } }));
+  E4.positionen.find(x => x.key === 'sv1').preis = '1.450,00';
+  const r4 = AW.abrechnung({ einstellungen: E4, zeiten, kategorien: AW.kategorien({ proben: n(1) }), berichte: [{ datei: 'Mitteilung', abrechnen: true, seiten: '24' }], fotos: { anzahl: 60 } });
+  const h4 = r4.hinweise.join('\n');
+  assert.match(h4, /Preis für „Sachverständiger“ \(Titel 1\) „1\.450,00“ ist keine Zahl/);
+  assert.match(h4, /Satz „€ je Foto“ ist keine Zahl/);
+  assert.doesNotMatch(h4, /Sätze für 3\.002 .* fehlen/);
+  const neben = r4.titel.find(x => x.nr === 3).zeilen.find(x => x.key === 'neben');
+  assert.equal(neben.gesamt, null, '3.002 ohne Betrag statt nur mit dem gültigen Teil');
+  assert.equal(r4.netto, null);
+}
 assert.equal(AW.kuerzelOk('SK'), true); assert.equal(AW.kuerzelOk('S K'), false); assert.equal(AW.kuerzelOk('../x'), false);
 
 console.log('BelegKit Logik: alle Prüfungen bestanden');
