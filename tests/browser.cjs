@@ -52,6 +52,24 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.goto(base);
   await page.waitForFunction(() => document.getElementById('ver').textContent.startsWith('v1'));
 
+  // Kürzel wird mit LabelKit geteilt („mosaik-kuerzel“): gemeinsamer Wert zuerst, eigener alter Wert als Rückfall (wird übernommen), Änderungen gehen in beide
+  const kz = async () => ({ feld: await page.locator('#kz').inputValue(), gemeinsam: await page.evaluate(() => localStorage.getItem('mosaik-kuerzel')), eigen: await page.evaluate(() => localStorage.getItem('aufwandkit-kuerzel')) });
+  const neuLaden = async () => { await page.reload(); await page.waitForFunction(() => document.getElementById('ver').textContent.startsWith('v1')); };
+  await page.evaluate(() => { localStorage.clear(); localStorage.setItem('mosaik-kuerzel', 'ab'); localStorage.setItem('aufwandkit-kuerzel', 'XY'); });
+  await neuLaden();
+  assert.equal((await kz()).feld, 'AB', 'gemeinsames Kürzel hat Vorrang');
+  await page.evaluate(() => { localStorage.removeItem('mosaik-kuerzel'); localStorage.setItem('aufwandkit-kuerzel', 'xy'); });
+  await neuLaden();
+  assert.deepEqual(await kz(), { feld: 'XY', gemeinsam: 'XY', eigen: 'xy' }, 'bisheriges eigenes Kürzel wird übernommen und geteilt');
+  await page.evaluate(() => { localStorage.setItem('mosaik-kuerzel', 'S.K-LabelKit'); });
+  await neuLaden();
+  assert.equal((await kz()).feld, 'XY', 'ungültiges (zu langes) Kürzel aus LabelKit wird nicht übernommen');
+  await page.locator('#kz').fill('mk'); await page.locator('#kz').dispatchEvent('change');
+  await page.waitForFunction(() => localStorage.getItem('mosaik-kuerzel') === 'MK');
+  assert.equal((await kz()).eigen, 'MK');
+  await page.evaluate(() => localStorage.clear());
+  await neuLaden();
+
   const kann = await page.evaluate(async () => {
     if (!('showDirectoryPicker' in window) || !navigator.storage || !navigator.storage.getDirectory) return false;
     try{ const r = await navigator.storage.getDirectory(); const h = await r.getFileHandle('probe', { create: true }); if (!h.createWritable) return false; await r.removeEntry('probe'); return true; }catch(e){ return false; }
