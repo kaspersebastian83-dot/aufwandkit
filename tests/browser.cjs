@@ -89,6 +89,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
     const p = await archiv.getDirectoryHandle(PROJ, { create: true });
     const schreibe = async (dir, nm, data) => { const w = await (await dir.getFileHandle(nm, { create: true })).createWritable(); await w.write(data); await w.close(); };
     await schreibe(await p.getDirectoryHandle('Laboraufträge', { create: true }), '26.0389_16.09.2026_Daten.json', JSON.stringify(labelkit));
+    await schreibe(p, '_Projekt.json', JSON.stringify({ format: 'mosaik-projekt', version: 1, objekt: 'EFH, Musterweg 7, 52525 Heinsberg', auftraggeber: 'Beispiel Versicherung AG', schadennummer: 'S-2026-4711', ortstermin: '2026-07-28' }));
     const fo = await p.getDirectoryHandle('Fotos', { create: true });
     for (let i = 1; i <= 6; i++) await schreibe(fo, `26.0389_${String(i).padStart(3, '0')}.jpg`, 'x');
     await schreibe(fo, '_Bildumbenenner.json', JSON.stringify({ bilder: { '26.0389_006.jpg': { aussortiert: true } } }));
@@ -171,17 +172,29 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
     await page.waitForFunction(() => /Zwischenablage/.test(document.getElementById('status').textContent));
     assert.match(await page.evaluate(() => navigator.clipboard.readText()), /\r\n2\.001\tAnalyse\(n\) auf PAK n\. EPA\t56\t\r\n/);
   }
+  // Projektdaten aus der Projektzentrale: oben auf jeder Seite, nur zur Ansicht
+  const band = (await page.locator('#pjBand').textContent()).replace(/\s+/g, ' ');
+  assert.match(band, /Objekt EFH, Musterweg 7, 52525 Heinsberg/); assert.match(band, /Auftraggeber Beispiel Versicherung AG/); assert.match(band, /Schaden-Nr\. S-2026-4711/);
+  assert.equal(await page.locator('#pjBand input, #pjBand textarea').count(), 0, 'keine Eingabefelder – geändert wird in der Projektzentrale');
+  await page.locator('button[data-tab="zeiten"]').click(); assert.ok(await page.locator('#pjBand').count(), 'auch auf den anderen Seiten'); await page.locator('button[data-tab="abrechnung"]').click();
   await page.locator('#aStand').click();
   await page.waitForFunction(() => /Stand gespeichert/.test(document.getElementById('status').textContent));
   const heute = await page.evaluate(() => { const d = new Date(), z = n => String(n).padStart(2, '0'); return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())}`; });
   const stand = JSON.parse(await lies(`§/Abrechnung/26-0389_Aufwand_${heute}.json`));
   assert.equal(stand.von, 'SK');
-  assert.deepEqual(stand.quellen.map(q => q.datei).sort(), ['Abrechnung/Aufwand_SK.json', 'Abrechnung/_Abrechnung.json', 'Fotos/_Bildumbenenner.json', 'Laboraufträge/26.0389_16.09.2026_Daten.json', 'Mitteilungen/1__Mitteilung.docx', 'Mitteilungen/1__Mitteilung.pdf', '_AufwandKit-Einstellungen.json (Archivordner)'].sort());
+  assert.deepEqual(stand.quellen.map(q => q.datei).sort(), ['Abrechnung/Aufwand_SK.json', 'Abrechnung/_Abrechnung.json', '_Projekt.json', 'Fotos/_Bildumbenenner.json', 'Laboraufträge/26.0389_16.09.2026_Daten.json', 'Mitteilungen/1__Mitteilung.docx', 'Mitteilungen/1__Mitteilung.pdf', '_AufwandKit-Einstellungen.json (Archivordner)'].sort());
   assert.ok(stand.quellen.every(q => /^[0-9a-f]{64}$/.test(q.sha256)));
-  assert.match(await lies(`§/Abrechnung/26-0389_Aufwand_${heute}.csv`), /^\ufeff?Projekt;26\.0389 Riedelsbach\r\nStand;/);
+  assert.deepEqual(stand.projektdaten, { objekt: 'EFH, Musterweg 7, 52525 Heinsberg', auftraggeber: 'Beispiel Versicherung AG', schadennummer: 'S-2026-4711' });
+  assert.match(await lies(`§/Abrechnung/26-0389_Aufwand_${heute}.csv`), /^\ufeff?Projekt;26\.0389 Riedelsbach\r\nObjekt;EFH, Musterweg 7, 52525 Heinsberg\r\nAuftraggeber;Beispiel Versicherung AG\r\nSchaden-Nr\. des Auftraggebers;S-2026-4711\r\nStand;/);
   await page.locator('#aStand').click();
   await page.waitForFunction(h => document.getElementById('status').textContent.includes('Aufwand_' + h + '_2.json'), heute);
 
+  // Ohne Projektdaten: freundlicher Hinweis auf der Abrechnung (statt leerer Zeile)
+  await page.evaluate(async PROJ => { const p = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('Mosaik Archivordner')).getDirectoryHandle(PROJ); const x = await (await p.getFileHandle('_Projekt.json')).getFile(); window.__pj = await x.text(); await p.removeEntry('_Projekt.json'); }, PROJ);
+  await page.locator('#bNeu').click(); await page.locator('#pjBand .hint').waitFor();
+  assert.match(await page.locator('#pjBand').textContent(), /Noch keine Projektdaten .* in der Projektzentrale ergänzen/);
+  await page.evaluate(async PROJ => { const p = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('Mosaik Archivordner')).getDirectoryHandle(PROJ); const w = await (await p.getFileHandle('_Projekt.json', { create: true })).createWritable(); await w.write(window.__pj); await w.close(); }, PROJ);
+  await page.locator('#bNeu').click(); await page.locator('#pjBand b').first().waitFor();
   // Zweiter Kollege: eigene Datei, SK bleibt unberührt; km am selben Tag → Hinweis
   await page.locator('#kz').fill('AB');
   await page.locator('button[data-tab="zeiten"]').click();   // Kürzel wird beim Verlassen übernommen, der Klick auf den Reiter darf nicht verloren gehen
