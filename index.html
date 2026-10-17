@@ -154,6 +154,9 @@ const AW = (() => {
   const fmt = (x, st) => { if (x == null || Number.isNaN(x)) return ''; const r = Math.round(x * 100) / 100; const d = st == null ? (Number.isInteger(r) ? 0 : (Number.isInteger(r * 10) ? 1 : 2)) : st;
     return r.toLocaleString('de-DE', { minimumFractionDigits: d, maximumFractionDigits: d }); };
   const euro = x => x == null || Number.isNaN(x) ? '' : fmt(x, 2) + ' €';
+  /** Kaufmännisch auf Cent runden (0,225 → 0,23). Math.round(x * 100) / 100 rundet wegen der Gleitkommadarstellung
+     z. B. 0,3 km × 0,75 € = 0,225 auf 0,22 ab; hier wird über die Dezimaldarstellung gerundet. Gilt auch für Mengen (2 Stellen wie angezeigt). */
+  const geld = x => { if (x == null || !Number.isFinite(x)) return x; return Math.sign(x) * Math.round(Number((Math.abs(x) * 100).toFixed(6))) / 100; };
 
   /* ---------- Einstellungen (Positionskatalog) ----------
      Feste Schlüssel für Zeit, Fahrt und Nebenkosten; Laborpositionen frei („lab-…“). Vorbelegt nach Rechnung 202600542. */
@@ -198,8 +201,10 @@ const AW = (() => {
   const paramKey = v => [...new Set(str(v).split(/[;,\n+]+/).map(x => x.replace(/\s+/g, ' ').trim().toLocaleLowerCase('de-DE')).filter(Boolean))].sort().join(' + ');
   function kategorien(daten){
     const d = daten && typeof daten === 'object' ? daten : {}, k = new Map();
+    /* „ohne Bezeichnung“ wie LabelKits eigene Prüfung: Raum/Ort (z2), bei Bohrkernen die BK-Bezeichnung */
+    const bezeichnet = p => p.matrix === 'Bohrkern' ? !!(t(p.bkBez) || t(p.z2) || t(p.z3)) : !!(t(p.z2) || t(p.z3));
     const add = (key, label, p) => { const e = k.get(key) || { key, label, anzahl: 0, ohneBezeichnung: 0 }; e.anzahl++;
-      if (p && !t(p.z2) && !t(p.z3)) e.ohneBezeichnung++; k.set(key, e); };
+      if (p && !bezeichnet(p)) e.ohneBezeichnung++; k.set(key, e); };
     const L = n => Array.isArray(d[n]) ? d[n] : [];
     L('proben').forEach(p => p.matrix === 'Wischprobe' ? add('pak-wisch', 'PAK – Wischproben', p) : add('pak-material', 'PAK – Material' + (t(p.matrix) ? ' (' + t(p.matrix) + ')' : ''), p));
     L('chloridProben').forEach(p => {
@@ -225,6 +230,7 @@ const AW = (() => {
   /** dateien: [{kuerzel, eintraege:[{datum, art, rolle, stunden, km, spesen, hotelAnzahl, hotelBetrag, notiz}]}] */
   function zeiten(dateien){
     const sum = { sv1: 0, pn1: 0, sv3: 0, pn3: 0, km: 0, spesen: 0, hotelAnzahl: 0, hotelBetrag: 0, ortstermine: new Set() }, hinweise = [], kmJeTag = {};
+    for (const f of dateien || []) if (f && f.defekt) hinweise.push(`„${t(f.datei) || 'Aufwand_' + t(f.kuerzel) + '.json'}“ ist nicht lesbar – die Zeiten von ${t(f.kuerzel) || '?'} fehlen in der Abrechnung.`);
     for (const f of dateien || []) for (const e of (f.eintraege || [])){
       const wer = t(f.kuerzel) || '?', wann = t(e.datum);
       const n = (feld, label) => { const x = zahl(e[feld]); if (Number.isNaN(x)){ hinweise.push(`${wer} ${datumDe(wann)}: ${label} „${t(e[feld])}“ ist keine Zahl – nicht mitgezählt.`); return 0; } if (x < 0){ hinweise.push(`${wer} ${datumDe(wann)}: ${label} negativ – nicht mitgezählt.`); return 0; } return x; };
@@ -236,6 +242,7 @@ const AW = (() => {
       if (art === 1 && !h) hinweise.push(`${wer} ${datumDe(wann)}: Ortstermin ohne Stunden.`);
       if (art === 3 && (km || sp || ha)) hinweise.push(`${wer} ${datumDe(wann)}: km/Spesen/Übernachtung bei „Auswertung / Bericht“ – gehören zum Ortstermin (Titel 1).`);
       if (ha && !hb) hinweise.push(`${wer} ${datumDe(wann)}: Übernachtung ohne Betrag lt. Beleg.`);
+      if (hb && !ha) hinweise.push(`${wer} ${datumDe(wann)}: Betrag Übernachtung ohne Anzahl der Übernachtungen.`);
       if (km && wann) (kmJeTag[wann] = kmJeTag[wann] || new Set()).add(wer);
       if (h > 24) hinweise.push(`${wer} ${datumDe(wann)}: ${fmt(h)} Stunden an einem Eintrag – mehr als ein Tag, bitte prüfen.`);
     }
@@ -260,31 +267,46 @@ const AW = (() => {
   }
   /** Seitenangabe von Word plausibel? Mehr als ~900 Wörter je Seite deutet auf eine veraltete Angabe. */
   const wordSeitenPlausibel = a => !!a && a.seiten > 0 && !(a.woerter && a.woerter / a.seiten > 900);
-  /** PDF: Seitenobjekte zählen (Text als latin1). null, wenn nicht sicher bestimmbar (z. B. komprimierte Objektströme). */
+  /** PDF: Seitenzahl (Text als latin1). null, wenn nicht sicher bestimmbar (z. B. komprimierte Objektströme).
+     Ein PDF, das nachträglich gespeichert wurde (Acrobat, Signatur, Kommentare), hängt geänderte Objekte an – dieselbe Seite steht dann
+     mehrfach in der Datei. Darum gilt je Objektnummer nur die letzte Fassung, und vorrangig die Angabe /Count des Seitenbaums aus dem Katalog. */
   function pdfSeiten(text){
     const s = str(text); if (!/^%PDF-/.test(s)) return null;
-    const n = (s.match(/\/Type\s*\/Page(?![a-zA-Z])/g) || []).length;
+    const obj = new Map(), re = /(\d+)\s+(\d+)\s+obj\b([\s\S]*?)\bendobj\b/g; let m;
+    while ((m = re.exec(s))) obj.set(m[1] + ' ' + m[2], m[3]);
+    const ref = (body, name) => { const r = new RegExp('/' + name + '\\s+(\\d+)\\s+(\\d+)\\s+R').exec(str(body)); return r ? r[1] + ' ' + r[2] : null; };
+    const roots = [...s.matchAll(/\/Root\s+(\d+)\s+(\d+)\s+R/g)];
+    if (roots.length){
+      const r = roots[roots.length - 1], kat = obj.get(r[1] + ' ' + r[2]), baum = kat && obj.get(ref(kat, 'Pages'));
+      const c = baum && /\/Count\s+(\d+)/.exec(baum);
+      if (c && +c[1] > 0) return +c[1];
+    }
+    let n = 0; for (const body of obj.values()) if (/\/Type\s*\/Page(?![a-zA-Z])/.test(body)) n++;
     return n > 0 ? n : null;
   }
 
   /* ---------- Abrechnung ---------- */
-  /** o: {einstellungen, zeiten:[dateien], kategorien:[...], berichte:[{datei, abrechnen, seiten}], fotos:{anzahl, quelle}} */
+  /** o: {einstellungen, zeiten:[dateien], kategorien:[...], berichte:[{datei, abrechnen, seiten, fehlt}], fotos:{anzahl, quelle, hinweise},
+         labelkit:{pn98, sonstige}, hinweise:[Lesefehler der Quellen]} */
   function abrechnung(o){
-    const E = einstellungen(o.einstellungen), P = k => E.positionen.find(p => p.key === k), hinweise = [];
+    const E = einstellungen(o.einstellungen), P = k => E.positionen.find(p => p.key === k), hinweise = [...(o.hinweise || [])];
     const z = zeiten(o.zeiten); hinweise.push(...z.hinweise);
     const zeilen = { 1: [], 2: [], 3: [] };
-    const zeile = (key, menge, quelle, extra) => {
+    /* extra.preis gesetzt (auch null) = Betrag von hier (Übernachtung lt. Beleg, 3.002 aus den Sätzen); null heißt: kein Betrag, nichts vortäuschen. */
+    const zeile = (key, roh, quelle, extra) => {
       const p = P(key); if (!p){ hinweise.push(`Position „${key}“ fehlt in den Einstellungen.`); return; }
+      const menge = geld(roh);   // Menge wie angezeigt und kopiert (2 Stellen) – der Vorschaubetrag rechnet mit derselben Menge wie das Rechnungsprogramm
       if (!menge) return;
       if (!t(p.nr)) hinweise.push(`„${p.text}“ (Titel ${p.titel}) hat keine Positionsnummer – bitte in den Einstellungen eintragen.`);
-      const preis = extra && extra.preis != null ? extra.preis : zahl(p.preis);
-      if (!(extra && extra.preis != null) && Number.isNaN(preis)) hinweise.push(`Preis für „${p.text}“ (Titel ${p.titel}) „${t(p.preis)}“ ist keine Zahl – bitte in den Einstellungen ohne Tausenderpunkt eintragen (z. B. 1250,00).`);
-      zeilen[p.titel].push({ key, nr: t(p.nr), text: p.text, menge, einheit: t(p.einheit), preis: preis || null, gesamt: preis ? Math.round(menge * preis * 100) / 100 : null, quelle, zusatz: extra && extra.zusatz || '' });
+      const eigen = !!extra && 'preis' in extra, preis = eigen ? extra.preis : zahl(p.preis);
+      if (!eigen && Number.isNaN(preis)) hinweise.push(`Preis für „${p.text}“ (Titel ${p.titel}) „${t(p.preis)}“ ist keine Zahl – bitte in den Einstellungen ohne Tausenderpunkt eintragen (z. B. 1250,00).`);
+      const ok = preis != null && Number.isFinite(preis) && preis !== 0;
+      (zeilen[p.titel] || zeilen[3]).push({ key, nr: t(p.nr), text: p.text, menge, einheit: t(p.einheit), preis: ok ? geld(preis) : null, gesamt: ok ? geld(menge * geld(preis)) : null, quelle, zusatz: extra && extra.zusatz || '' });
     };
     const s = z.sum;
     zeile('sv1', s.sv1, 'Zeiten (Ortstermin)'); zeile('pn1', s.pn1, 'Zeiten (Ortstermin)'); zeile('km', s.km, 'Zeiten');
     zeile('spesen', s.spesen, 'Zeiten');
-    if (s.hotelAnzahl || s.hotelBetrag) zeile('hotel', 1, 'Zeiten, Betrag lt. Belegen', { preis: s.hotelBetrag || null, zusatz: `${fmt(s.hotelAnzahl)} Übernachtung${s.hotelAnzahl === 1 ? '' : 'en'}` });
+    if (s.hotelAnzahl || s.hotelBetrag) zeile('hotel', 1, 'Zeiten, Betrag lt. Belegen', { preis: s.hotelBetrag ? geld(s.hotelBetrag) : null, zusatz: `${fmt(s.hotelAnzahl)} Übernachtung${s.hotelAnzahl === 1 ? '' : 'en'}` });
     // Labor: Kategorien → Positionen, gleiche Position wird addiert
     const jePos = new Map();
     for (const k of o.kategorien || []){
@@ -295,25 +317,44 @@ const AW = (() => {
       if (k.ohneBezeichnung) hinweise.push(`${k.label}: ${k.ohneBezeichnung} Zeile${k.ohneBezeichnung === 1 ? '' : 'n'} in LabelKit ohne Bezeichnung – leere Zeilen?`);
     }
     for (const [key, e] of jePos) zeile(key, e.menge, 'LabelKit: ' + e.teile.join(', '));
+    const lk = o.labelkit || {};
+    if (lk.pn98 && !lk.sonstige) hinweise.push(`LabelKit: ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'e'}, aber keine Proben unter „Sonstige“ – PN-98-Protokolle selbst werden nicht als Analyse gezählt. Sind die Laborproben in LabelKit erfasst?`);
     zeile('sv3', s.sv3, 'Zeiten (Auswertung / Bericht)'); zeile('pn3', s.pn3, 'Zeiten (Auswertung / Bericht)');
     // 3.002: Seiten und Fotos
-    const ber = (o.berichte || []).filter(b => b.abrechnen);
+    for (const b of (o.berichte || []).filter(b => b.abrechnen && b.fehlt)) hinweise.push(`Bericht „${b.datei}“ ist zur Abrechnung angekreuzt, liegt aber nicht mehr in „Mitteilungen“ (umbenannt oder verschoben?) – nicht mitgezählt. Bitte den Bericht unter „Bericht & Fotos“ neu ankreuzen.`);
+    const ber = (o.berichte || []).filter(b => b.abrechnen && !b.fehlt);
     let seiten = 0, offen = 0;
-    for (const b of ber){ const n = zahl(b.seiten); if (!t(b.seiten) || Number.isNaN(n) || n <= 0){ offen++; hinweise.push(`Bericht „${b.datei}“: Seitenzahl noch nicht bestätigt.`); } else seiten += n; }
+    for (const b of ber){ const n = zahl(b.seiten);
+      if (!t(b.seiten) || Number.isNaN(n) || n <= 0){ offen++; hinweise.push(`Bericht „${b.datei}“: Seitenzahl noch nicht bestätigt.`); }
+      else if (!Number.isInteger(n)){ offen++; hinweise.push(`Bericht „${b.datei}“: Seitenzahl „${t(b.seiten)}“ ist keine ganze Zahl – nicht mitgezählt.`); }
+      else seiten += n; }
     if (!ber.length) hinweise.push('Kein Bericht zur Abrechnung ausgewählt (Reiter „Bericht & Fotos“).');
     const fotos = o.fotos && o.fotos.anzahl || 0;
+    if (o.fotos && Array.isArray(o.fotos.hinweise)) hinweise.push(...o.fotos.hinweise);
     const sz = E.saetze || {}, ps = zahl(sz.seite), pf = zahl(sz.foto), pp = zahl(sz.pauschale);
     for (const [w, label] of [[ps, '€ je Berichtsseite'], [pf, '€ je Foto'], [pp, 'fester Anteil €']]) if (Number.isNaN(w)) hinweise.push(`Satz „${label}“ ist keine Zahl – bitte in den Einstellungen ohne Tausenderpunkt eintragen.`);
-    if (seiten || fotos){
-      const ungueltig = [ps, pf, pp].some(Number.isNaN);
-      const betrag = !ungueltig && (ps || pf || pp) ? Math.round(((ps || 0) * seiten + (pf || 0) * fotos + (pp || 0)) * 100) / 100 : null;
-      if (betrag == null && !ungueltig) hinweise.push('Sätze für 3.002 (€ je Seite / je Foto) fehlen in den Einstellungen – Menge wird ohne Betrag ausgegeben.');
-      zeile('neben', 1, `${seiten} Berichtsseite${seiten === 1 ? '' : 'n'}${offen ? ` (${offen} Bericht${offen === 1 ? '' : 'e'} ohne Seitenzahl)` : ''}, ${fotos} Foto${fotos === 1 ? '' : 's'}`, { preis: betrag });
+    if (seiten || fotos || offen){
+      const quelle = `${seiten} Berichtsseite${seiten === 1 ? '' : 'n'}${offen ? ` (${offen} Bericht${offen === 1 ? '' : 'e'} ohne Seitenzahl)` : ''}, ${fotos} Foto${fotos === 1 ? '' : 's'}`;
+      if (!t(sz.seite) && !t(sz.foto) && !t(sz.pauschale)){
+        // keine Sätze: fester Preis der Position (falls eingetragen) als Vorschau, sonst Menge ohne Betrag
+        if (!t((P('neben') || {}).preis)) hinweise.push('Sätze für 3.002 (€ je Seite / je Foto) fehlen in den Einstellungen – Menge wird ohne Betrag ausgegeben.');
+        zeile('neben', 1, quelle);
+      } else {
+        // Ein Betrag nur, wenn alles feststeht: kein ungültiger Satz, kein fehlender Satz für vorhandene Seiten/Fotos, keine offene Seitenzahl
+        const fehlt = [];
+        if (seiten && !t(sz.seite)) fehlt.push(`€ je Berichtsseite (${seiten} Seite${seiten === 1 ? '' : 'n'})`);
+        if (fotos && !t(sz.foto)) fehlt.push(`€ je Foto (${fotos} Foto${fotos === 1 ? '' : 's'})`);
+        if (fehlt.length) hinweise.push(`3.002: Satz ${fehlt.join(' und ')} fehlt in den Einstellungen – kein Betrag. Soll es nichts kosten, „0“ eintragen.`);
+        if (offen) hinweise.push(`3.002: ${offen} Bericht${offen === 1 ? '' : 'e'} ohne gültige Seitenzahl – kein Betrag, bis die Seitenzahl bestätigt ist.`);
+        const ungueltig = [ps, pf, pp].some(Number.isNaN) || fehlt.length || offen;
+        const betrag = ungueltig ? null : geld(geld(ps * seiten) + geld(pf * fotos) + geld(pp));
+        zeile('neben', 1, quelle, { preis: betrag || null });
+      }
     }
     const titelText = { 1: (E.titel[1] || TITEL[1]) + (z.sum.ortstermine.size ? ' ' + terminText([...z.sum.ortstermine]) : '') + '\nZeitaufwand', 2: E.titel[2] || TITEL[2], 3: E.titel[3] || TITEL[3] };
     const titel = [1, 2, 3].map(n => ({ nr: n, text: titelText[n], zeilen: n === 2 ? zeilen[n].sort((a, b) => a.nr.localeCompare(b.nr, 'de', { numeric: true })) : zeilen[n],   // Titel 1 und 3 in der Reihenfolge der Rechnung
-      summe: zeilen[n].every(x => x.gesamt != null) && zeilen[n].length ? zeilen[n].reduce((a, x) => a + x.gesamt, 0) : null })).filter(x => x.zeilen.length);
-    const netto = titel.length && titel.every(x => x.summe != null) ? titel.reduce((a, x) => a + x.summe, 0) : null;
+      summe: zeilen[n].every(x => x.gesamt != null) && zeilen[n].length ? geld(zeilen[n].reduce((a, x) => a + x.gesamt, 0)) : null })).filter(x => x.zeilen.length);
+    const netto = titel.length && titel.every(x => x.summe != null) ? geld(titel.reduce((a, x) => a + x.summe, 0)) : null;
     return { titel, hinweise: [...new Set(hinweise)], netto, sum: Object.assign({}, s, { ortstermine: [...s.ortstermine].sort() }), seiten, fotos };
   }
 
@@ -339,14 +380,17 @@ const AW = (() => {
     throw new Error('Zu viele Stände mit gleichem Namen');
   }
   const kuerzelOk = k => /^[A-Za-zÄÖÜäöü]{1,6}$/.test(t(k));
-  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, zeiten, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, kuerzelOk };
+  /** Zählt als Foto: Bilddatei, aber keine versteckte Datei („._IMG.jpg“ vom Mac, „.~…“) und keine Zwischendatei von FotoKit („umb-tmp_…“). */
+  const fotoDatei = n => /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(str(n)) && !/^(\.|~|umb-tmp_)/i.test(str(n));
+  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, zeiten, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
 })();
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.3.1';
-const APP_DATE = '2026-10-17';
+const APP_VERSION = '1.3.2';
+const APP_DATE = '2026-10-18';
 const CHANGELOG = [
+  ['1.3.2', '18.10.2026', 'Prüflauf Rechnung: Beträge werden kaufmännisch auf Cent gerundet (bisher z. B. 0,3 km × 0,75 € = 0,22 statt 0,23 €). PDF-Berichte, die nachträglich gespeichert wurden (Acrobat, Kommentare, Signatur), werden nicht mehr doppelt gezählt. 3.002 zeigt keinen Betrag mehr, solange ein Satz fehlt (bisher kosteten die Seiten still 0 €, wenn nur der Foto-Satz eingetragen war) oder ein angekreuzter Bericht noch keine Seitenzahl hat; Seitenzahlen müssen ganze Zahlen sein. Neue Hinweise statt still fehlender Mengen: unlesbare Zeiten-Datei eines Kollegen, unlesbare LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei, angekreuzter Bericht, der umbenannt wurde, Fotos in Unterordnern, Übernachtungsbetrag ohne Anzahl, PN-98-Protokolle ohne Laborproben. Mac-Begleitdateien („._…“) und FotoKit-Zwischendateien zählen nicht als Fotos. Bohrkerne aus dem LabelKit-Assistenten gelten nicht mehr fälschlich als „ohne Bezeichnung“. Die Zuordnung einer Probenart überschreibt keine Preise mehr, die ein Kollege inzwischen gespeichert hat; „Einstellungen speichern“ fragt nach, wenn jemand dazwischen gespeichert hat. Menge und Vorschaubetrag rechnen mit denselben zwei Nachkommastellen wie das Rechnungsprogramm.'],
   ['1.3.1', '17.10.2026', 'Zahlen mit Tausenderpunkt („1.250“, „1.250,00“) werden nicht mehr still falsch gelesen (bisher wurde aus „1.250“ 1,25), sondern als Hinweis gemeldet. Ein Preis oder Satz, der keine Zahl ist, erscheint jetzt als Hinweis statt einfach zu fehlen. Leiste: Das Projektmenü bleibt offen, während die Leiste sich im Hintergrund aktualisiert.'],
   ['1.3.0', '17.10.2026', 'Neue schmale Leiste oben, in allen vier Apps gleich: Projekt mit Wechsel zu den zuletzt geöffneten, die vier Arbeitsschritte (LabelKit, FotoKit, PlanKit, BelegKit) mit Haken bei erledigten Schritten, und ein Knopf „Weiter: …“ zum nächsten offenen Schritt – öffnet die App mit demselben Projekt. Ohne geöffnetes Projekt bietet die Leiste „Weiter mit <zuletzt geöffnetes Projekt>“ an. Die Leiste liest den Projektordner nur und schreibt nie hinein; ohne Ordnerrecht (oder in Safari) fehlen nur die Haken.'],
   ['1.2.0', '17.10.2026', 'Projektdaten aus der Projektzentrale (Objekt, Auftraggeber, Schaden-Nr.) stehen oben auf jeder Seite – nur zur Ansicht, geändert wird in der Projektzentrale. Sie erscheinen auch im gespeicherten Stand (JSON und CSV); „_Projekt.json“ steht mit Prüfsumme bei den Quellen.'],
@@ -374,7 +418,6 @@ const parseProj = n => { const m = PROJ_RE.exec(String(n).normalize('NFC').trim(
 const ORDNER = { abr: 'Abrechnung', lab: 'Laboraufträge', fotos: 'Fotos', mitteil: 'Mitteilungen' };
 const EINST_DATEI = '_AufwandKit-Einstellungen.json';
 const PROJ_DATEI = '_Abrechnung.json';
-const IMG = /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i;
 
 const A = { archiv: null, proj: null, kz: '', einst: AW.einstellungen(null), einstAusDatei: false, einstGeaendert: null, meine: [], alle: [], labelkit: null, fotos: { anzahl: 0, quelle: '' },
   berichte: [], pdatei: { berichte: {} }, tab: 'zeiten', preise: false, laden: 0, schreib: Promise.resolve() };
@@ -481,10 +524,10 @@ async function oeffne(name){
 async function ladeAlles(){
   const token = ++A.laden, aktuell = () => token === A.laden;
   $('inhalt').innerHTML = '<div class="leer"><p>Wird gelesen …</p></div>';
-  const fehler = [];
+  const fehler = [], quellen = [];   // quellen: Lesefehler, die in der Abrechnung als Hinweis stehen müssen (fehlende Zeiten, Proben, Seiten)
   await sichereMeine();   // noch nicht geschriebene Eingaben zuerst sichern – sonst überschreibt das Neueinlesen sie
-  try{ const e = await liesJson(A.archiv, EINST_DATEI); A.einst = AW.einstellungen(e && e.daten); A.einstAusDatei = !!e; A.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; A.einstGesperrt = false; }
-  catch(e){ fehler.push(e.message); A.einst = AW.einstellungen(null); A.einstAusDatei = false; A.einstGesperrt = true; }
+  try{ const e = await liesJson(A.archiv, EINST_DATEI); A.einst = AW.einstellungen(e && e.daten); A.einstAusDatei = !!e; A.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; A.einstStand = e && e.daten && e.daten.geaendert || null; A.einstGesperrt = false; }
+  catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); A.einst = AW.einstellungen(null); A.einstAusDatei = false; A.einstGesperrt = true; }
   const abr = await unter(A.proj.dir, ORDNER.abr, false);
   A.alle = [];
   if (abr) for await (const h of abr.values()){
@@ -497,7 +540,7 @@ async function ladeAlles(){
   A.meine = mein ? mein.eintraege.map(x => Object.assign({}, x)) : [];
   A.meineDefekt = !!(mein && mein.defekt);
   try{ const j = await liesJson(abr, PROJ_DATEI); A.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; A.pdateiGesperrt = false; }
-  catch(e){ fehler.push(e.message); A.pdatei = { berichte: {} }; A.pdateiGesperrt = true; }
+  catch(e){ fehler.push(e.message); quellen.push(`Berichtsangaben nicht lesbar – angekreuzte Berichte und Seitenzahlen fehlen: ${e.message}`); A.pdatei = { berichte: {} }; A.pdateiGesperrt = true; }
   // Gemeinsame Projektdaten (Projektzentrale): nur lesen und anzeigen – bearbeitet wird in der Projektzentrale
   A.pj = null;
   try{ const j = await liesJson(A.proj.dir, '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') A.pj = j.daten; }
@@ -508,15 +551,26 @@ async function ladeAlles(){
   if (lab){
     let best = null;
     for await (const h of lab.values()) if (h.kind === 'file' && /_Daten\.json$/i.test(h.name)){ const f = await h.getFile(); if (!best || f.lastModified > best.lastModified) best = f; }
-    if (best){ try{ const daten = JSON.parse(await best.text()); A.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); } }
+    if (best){ try{ const daten = JSON.parse(await best.text()); A.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
+      catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); quellen.push(`LabelKit-Datei „${best.name}“ ist nicht lesbar – Titel 2 (Labor) fehlt.`); } }
   }
   // Fotos: Bilddateien direkt in „Fotos“, ohne die in FotoKit aussortierten
-  A.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“' };
+  A.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“', hinweise: [] };
   const fo = await unter(A.proj.dir, ORDNER.fotos, false);
   if (fo){
-    const namen = []; for await (const h of fo.values()) if (h.kind === 'file' && IMG.test(h.name)) namen.push(h.name);
-    let aus = 0; try{ const j = await liesJson(fo, '_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }catch(e){}
-    A.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}` };
+    const namen = [], unterOrdner = [];
+    for await (const h of fo.values()){
+      if (h.kind === 'file' && AW.fotoDatei(h.name)) namen.push(h.name);
+      else if (h.kind === 'directory' && !/^(_aussortiert|\.)/i.test(h.name)){   // _aussortiert: von FotoKit aussortiert, zählt nicht
+        let n = 0; for await (const x of h.values()) if (x.kind === 'file' && AW.fotoDatei(x.name)) n++;
+        if (n) unterOrdner.push(`${h.name} (${n})`);
+      }
+    }
+    let aus = 0; const fh = [];
+    try{ const j = await liesJson(fo, '_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
+    catch(e){ fh.push(`„Fotos/_Bildumbenenner.json“ ist nicht lesbar – in FotoKit aussortierte Fotos können nicht abgezogen werden, alle ${namen.length} Bilder sind gezählt.`); }
+    if (unterOrdner.length) fh.push(`Im Ordner „Fotos“ liegen Bilder in Unterordnern (${unterOrdner.join(', ')}) – gezählt werden nur die Fotos direkt in „Fotos“.`);
+    A.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
   }
   // Berichte in „Mitteilungen“: je Dateistamm eine Zeile (Word und PDF)
   A.berichte = [];
@@ -537,6 +591,7 @@ async function ladeAlles(){
       A.berichte.push(b);
     }
   }
+  A.ladeHinweise = quellen;
   if (!aktuell()) return;
   if (fehler.length) meldung('err', fehler.map(esc).join('<br>')); else versteckeMeldung();
   zeichne();
@@ -573,11 +628,29 @@ async function speichereBericht(stamm, patch){
   o.geaendert = new Date().toISOString(); o.geaendertMit = APP_NAME + ' ' + APP_VERSION;
   await schreibJson(abr, PROJ_DATEI, o); A.pdatei = o; status('✓ gespeichert', 'ok');
 }
+/** Zuordnung einer Probenart: Datei frisch lesen, nur diesen Eintrag ändern, schreiben – so gehen Preise oder Zuordnungen,
+   die ein Kollege inzwischen gespeichert hat, nicht verloren (bisher wurde der ganze beim Öffnen gelesene Stand zurückgeschrieben). */
+async function speichereZuordnung(kat, wert){
+  if (A.einstGesperrt){ status(`„${EINST_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
+  const cur = await liesJson(A.archiv, EINST_DATEI);
+  if (!cur){ await speichereEinst(); return; }   // noch keine Datei: der ganze Stand wird angelegt
+  const o = Object.assign({}, cur.daten, { zuordnung: Object.assign({}, cur.daten.zuordnung || AW.STANDARD().zuordnung) });
+  if (wert) o.zuordnung[kat] = wert; else delete o.zuordnung[kat];
+  Object.assign(o, { geaendert: new Date().toISOString(), geaendertVon: A.kz.toUpperCase(), geaendertMit: APP_NAME + ' ' + APP_VERSION });
+  await schreibJson(A.archiv, EINST_DATEI, o);
+  // Stand nur fortschreiben, wenn vorher niemand dazwischen gespeichert hat – sonst warnt „Einstellungen speichern“ später zu Recht
+  if ((cur.daten.geaendert || null) === (A.einstStand || null)) A.einstStand = o.geaendert;
+  A.einstAusDatei = true; A.einstGeaendert = o;
+  status('✓ Zuordnung gespeichert (gilt für alle Projekte)', 'ok');
+}
 async function speichereEinst(){
   if (A.einstGesperrt){ status(`„${EINST_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return false; }
+  // Hat jemand die Einstellungen seit dem Einlesen gespeichert? Dann nicht still überschreiben.
+  const cur = await liesJson(A.archiv, EINST_DATEI), stand = cur && cur.daten && cur.daten.geaendert || null;
+  if (stand && stand !== (A.einstStand || null) && !confirm(`Die Einstellungen wurden inzwischen gespeichert${cur.daten.geaendertVon && cur.daten.geaendertVon !== A.kz.toUpperCase() ? ' von ' + cur.daten.geaendertVon : ''} (${zeitDe(stand)}).\n\nTrotzdem mit Ihrem Stand überschreiben? Abbrechen und „Neu einlesen“ zeigt den neuen Stand.`)) return false;
   const o = Object.assign({}, A.einst, { format: 'aufwandkit-einstellungen', version: 1, hinweis: 'Positionen und Sätze für BelegKit – gilt für alle Projekte und alle Kollegen. Bitte nicht löschen.',
     geaendert: new Date().toISOString(), geaendertVon: A.kz.toUpperCase(), geaendertMit: APP_NAME + ' ' + APP_VERSION });
-  await schreibJson(A.archiv, EINST_DATEI, o); A.einstAusDatei = true; A.einstGeaendert = o;
+  await schreibJson(A.archiv, EINST_DATEI, o); A.einstAusDatei = true; A.einstGeaendert = o; A.einstStand = o.geaendert;
   status(`✓ Einstellungen gespeichert („${EINST_DATEI}“ im Archivordner)`, 'ok'); return true;
 }
 
@@ -620,7 +693,7 @@ function zeichneZeiten(){
   const neu = art => { const letzt = A.meine[A.meine.length - 1]; A.meine.push({ id: 'z' + Date.now().toString(36), datum: art === 'ort' ? heuteIso() : (letzt && letzt.datum) || heuteIso(), art, rolle: personRolle(kz), stunden: '', km: '', spesen: '', hotelAnzahl: '', hotelBetrag: '', notiz: '' }); zeichneZeiten(); const r = $('zRows').lastElementChild; r && r.querySelector('[data-f="stunden"]').focus(); meineGeaendert(); };
   $('zNeu').onclick = () => neu('ort'); $('zNeuB').onclick = () => neu('buero');
   const tb = $('zRows');
-  tb.oninput = tb.onchange = e => { const el = e.target, i = +el.closest('tr').dataset.i, f = el.dataset.f; if (!f) return; A.meine[i][f] = el.value; if (f === 'art') zeichneZeiten(); meineGeaendert(); };
+  tb.oninput = tb.onchange = e => { const el = e.target, i = +el.closest('tr').dataset.i, f = el.dataset.f; if (!f || A.meine[i][f] === el.value) return; A.meine[i][f] = el.value;   /* „change“ beim Verlassen eines schon gespeicherten Felds löst keine zweite Speicherung aus */ if (f === 'art') zeichneZeiten(); meineGeaendert(); };
   tb.onclick = e => { const b = e.target.closest('button[data-weg]'); if (!b) return; const i = +b.dataset.weg, x = A.meine[i];
     if ((x.stunden || x.km) && !confirm(`Eintrag vom ${AW.datumDe(x.datum)} löschen?`)) return; A.meine.splice(i, 1); zeichneZeiten(); meineGeaendert(); };
   zeichneKollegen();
@@ -663,7 +736,7 @@ function zeichneProben(){
     <p class="m">Gezählt wird jede Probe einer Liste in LabelKit (eine Analyse je Probe). Die Zuordnung gilt für alle Projekte; fehlt eine Laborposition, unter „Einstellungen“ anlegen.</p></div>`;
   s.querySelector('tbody').onchange = async e => { const sel = e.target.closest('select[data-kat]'); if (!sel) return;
     A.einst.zuordnung = Object.assign({}, A.einst.zuordnung); if (sel.value) A.einst.zuordnung[sel.dataset.kat] = sel.value; else delete A.einst.zuordnung[sel.dataset.kat];
-    sel.classList.toggle('offen', !sel.value); await speichereEinst().catch(x => status('Nicht gespeichert: ' + x.message, 'err')); };
+    sel.classList.toggle('offen', !sel.value); await speichereZuordnung(sel.dataset.kat, sel.value).catch(x => status('Nicht gespeichert: ' + x.message, 'err')); };
 }
 function zeichneBericht(){
   const s = $('seite'), pb = A.pdatei.berichte || {};
@@ -685,13 +758,19 @@ function zeichneBericht(){
     await speichereBericht(A.berichte[i].stamm, { seiten: b.dataset.n, seitenQuelle: b.textContent.startsWith('PDF') ? 'PDF gezählt' : 'Word-Angabe' }).catch(x => status('Nicht gespeichert: ' + x.message, 'err')); zeichneBericht(); };
 }
 function abrechnungJetzt(){
-  const pb = A.pdatei.berichte || {};
-  return AW.abrechnung({ einstellungen: A.einst, zeiten: A.alle.map(f => f.kuerzel === A.kz.toUpperCase() ? Object.assign({}, f, { eintraege: A.meine }) : f),
-    kategorien: A.labelkit ? A.labelkit.kategorien : [], berichte: A.berichte.map(b => Object.assign({ datei: b.stamm }, pb[b.stamm] || {})), fotos: A.fotos });
+  const pb = A.pdatei.berichte || {}, da = new Set(A.berichte.map(b => b.stamm));
+  const d = A.labelkit ? A.labelkit.daten || {} : {}, len = k => Array.isArray(d[k]) ? d[k].length : 0;
+  return AW.abrechnung({ einstellungen: A.einst, hinweise: A.ladeHinweise || [],
+    zeiten: A.alle.map(f => f.kuerzel === A.kz.toUpperCase() && !f.defekt ? Object.assign({}, f, { eintraege: A.meine }) : f),
+    kategorien: A.labelkit ? A.labelkit.kategorien : [], labelkit: { pn98: len('pn98Proben'), sonstige: len('sonstigeProben') },
+    // angekreuzte Berichte, deren Datei es nicht mehr gibt, bleiben sichtbar (Hinweis) statt still zu verschwinden
+    berichte: [...A.berichte.map(b => Object.assign({ datei: b.stamm }, pb[b.stamm] || {})),
+      ...Object.entries(pb).filter(([k, v]) => v && v.abrechnen && !da.has(k)).map(([k, v]) => Object.assign({}, v, { datei: k, fehlt: true }))],
+    fotos: A.fotos });
 }
 function zeichneAbrechnung(){
   const s = $('seite'), a = abrechnungJetzt(), P = A.preise;
-  const hin = [...a.hinweise]; if (!A.labelkit) hin.unshift('Keine LabelKit-Projektdatei gefunden – Titel 2 (Labor) fehlt.');
+  const hin = [...a.hinweise]; if (!A.labelkit && !hin.some(h => h.startsWith('LabelKit-Datei'))) hin.unshift('Keine LabelKit-Projektdatei gefunden – Titel 2 (Labor) fehlt.');
   const tab = a.titel.map(ti => `<tbody><tr class="titel"><td>Titel ${ti.nr}</td><td colspan="${P ? 5 : 3}">${esc(ti.text).replace(/\n/g, '<br>')}</td></tr>
     ${ti.zeilen.map(x => `<tr><td class="mono">${esc(x.nr) || '<span class="warn">?</span>'}</td><td>${esc(x.text)}${x.zusatz ? ` <span class="m">(${esc(x.zusatz)})</span>` : ''}<div class="quelle">${esc(x.quelle)}</div></td>
       <td class="r"><b>${AW.fmt(x.menge)}</b></td><td>${esc(x.einheit)}</td>${P ? `<td class="r">${x.preis != null ? AW.euro(x.preis) : ''}</td><td class="r">${x.gesamt != null ? AW.euro(x.gesamt) : ''}</td>` : ''}</tr>`).join('')}

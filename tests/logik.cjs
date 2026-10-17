@@ -142,4 +142,86 @@ assert.ok(Number.isNaN(AW.zahl('1.250'))); assert.ok(Number.isNaN(AW.zahl('12.50
 }
 assert.equal(AW.kuerzelOk('SK'), true); assert.equal(AW.kuerzelOk('S K'), false); assert.equal(AW.kuerzelOk('../x'), false);
 
+// ---------- 1.3.2: Rechnen und Zählen ----------
+// Cent kaufmännisch gerundet (bisher 0,3 km × 0,75 € = 0,22 statt 0,23; 0,29 Std. × 45,50 € = 13,19 statt 13,20)
+assert.equal(AW.geld(0.3 * 0.75), 0.23); assert.equal(AW.geld(0.29 * 45.5), 13.2); assert.equal(AW.geld(1.005), 1.01); assert.equal(AW.geld(0.1 + 0.2), 0.3);
+for (let m = 1; m <= 4000; m++) for (const p of [8500, 14500, 75, 2800, 4550, 1234, 99]){
+  const soll = Math.floor((m * p + 50) / 100) / 100;
+  const E9 = AW.STANDARD(); E9.positionen.find(x => x.key === 'sv1').preis = String(p / 100).replace('.', ',');
+  if (m % 97) continue;   // Stichproben über die Abrechnung, vollständig über geld()
+  const r9 = AW.abrechnung({ einstellungen: E9, zeiten: [{ kuerzel: 'SK', eintraege: [{ datum: '2026-01-01', art: 'ort', stunden: String(m / 100).replace('.', ',') }] }], kategorien: [], berichte: [] });
+  assert.equal(r9.titel[0].zeilen[0].gesamt, soll, `${m / 100} × ${p / 100}`);
+}
+for (let m = 1; m <= 4000; m++) for (const p of [8500, 14500, 75, 2800, 4550, 1234, 99]) assert.equal(AW.geld((m / 100) * (p / 100)), Math.floor((m * p + 50) / 100) / 100);
+{ // Menge wie kopiert (2 Stellen) – Vorschaubetrag rechnet mit derselben Menge wie das Rechnungsprogramm
+  const r = AW.abrechnung({ einstellungen: AW.STANDARD(), zeiten: [{ kuerzel: 'SK', eintraege: [{ datum: '2026-01-01', art: 'ort', stunden: '7,333' }] }], kategorien: [], berichte: [] });
+  assert.equal(r.titel[0].zeilen[0].menge, 7.33); assert.equal(r.titel[0].zeilen[0].gesamt, 1062.85);
+}
+{ // Summen auf Cent, keine Gleitkommareste im gespeicherten Stand
+  const E8 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '7,50', foto: '0,94', pauschale: '' } }));
+  const r = AW.abrechnung({ einstellungen: E8, zeiten, kategorien: AW.kategorien({ proben: n(56), chloridProben: n(25) }), berichte: [{ datei: 'Mitteilung', abrechnen: true, seiten: '24' }], fotos: { anzahl: 60 } });
+  assert.equal(r.netto, 15988.23); assert.equal(r.titel[0].summe, 8166.83);
+}
+// PDF nachträglich gespeichert (inkrementell): dieselben Seiten stehen doppelt in der Datei – bisher 6 statt 3
+{
+  const basis = '%PDF-1.7\n1 0 obj<</Type /Catalog /Pages 2 0 R>>endobj\n2 0 obj<</Type /Pages /Count 3 /Kids[3 0 R 4 0 R 5 0 R]>>endobj\n3 0 obj<</Type /Page /Parent 2 0 R>>endobj\n4 0 obj<</Type /Page /Parent 2 0 R>>endobj\n5 0 obj<</Type /Page /Parent 2 0 R>>endobj\ntrailer<</Root 1 0 R /Size 6>>\n%%EOF\n';
+  const nachtrag = '3 0 obj<</Type /Page /Parent 2 0 R /Annots[]>>endobj\n4 0 obj<</Type /Page /Parent 2 0 R /Annots[]>>endobj\n5 0 obj<</Type /Page /Parent 2 0 R /Annots[]>>endobj\ntrailer<</Root 1 0 R /Prev 9 /Size 6>>\n%%EOF\n';
+  assert.equal(AW.pdfSeiten(basis), 3);
+  assert.equal(AW.pdfSeiten(basis + nachtrag), 3, 'Seiten nach Nachtrag nicht doppelt');
+  const geloescht = '2 0 obj<</Type /Pages /Count 2 /Kids[3 0 R 4 0 R]>>endobj\ntrailer<</Root 1 0 R /Prev 9 /Size 6>>\n%%EOF\n';
+  assert.equal(AW.pdfSeiten(basis + geloescht), 2, 'Seite im Nachtrag gelöscht: Seitenbaum zählt');
+  assert.equal(AW.pdfSeiten('%PDF-1.7\n2 0 obj<</Type /Page>>endobj 2 0 obj<</Type /Page /Rotate 90>>endobj 3 0 obj<</Type /Page>>endobj'), 2, 'ohne Katalog: je Objekt nur die letzte Fassung');
+}
+// Bohrkerne aus dem LabelKit-Assistenten haben die Bezeichnung in bkBez – kein falscher Hinweis „ohne Bezeichnung“
+{
+  const K2 = AW.kategorien({ sonstigeProben: [{ matrix: 'Bohrkern', notiz: 'PAK', z2: '', z3: '', bkBez: 'BK 1', bkSegment: 1 }, { matrix: 'Bohrkern', notiz: 'PAK', z2: '', z3: '', bkBez: '' }] });
+  assert.equal(K2[0].anzahl, 2); assert.equal(K2[0].ohneBezeichnung, 1);
+}
+// Unlesbare Zeiten-Datei eines Kollegen: Hinweis statt still fehlender Stunden
+{
+  const r = AW.abrechnung({ einstellungen: E, zeiten: [{ kuerzel: 'AB', datei: 'Aufwand_AB.json', eintraege: [], defekt: true }, ...zeiten.slice(0, 1)], kategorien: [], berichte: [] });
+  assert.match(r.hinweise.join('\n'), /„Aufwand_AB\.json“ ist nicht lesbar – die Zeiten von AB fehlen/);
+}
+// Lesefehler der Quellen stehen in der Abrechnung (und damit im gespeicherten Stand)
+assert.match(AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [], hinweise: ['LabelKit-Datei „x“ ist nicht lesbar – Titel 2 (Labor) fehlt.'] }).hinweise[0], /LabelKit-Datei/);
+// Betrag Übernachtung ohne Anzahl
+assert.match(AW.abrechnung({ einstellungen: E, zeiten: [{ kuerzel: 'SK', eintraege: [{ datum: '2026-07-28', art: 'ort', stunden: '8', hotelBetrag: '95,33' }] }], kategorien: [], berichte: [] }).hinweise.join('\n'), /Betrag Übernachtung ohne Anzahl/);
+// 3.002: fehlender Satz für vorhandene Seiten/Fotos → kein Teilbetrag (bisher: nur Fotos berechnet, Seiten still 0 €)
+{
+  const E5 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '', foto: '0,94', pauschale: '' } }));
+  const r = AW.abrechnung({ einstellungen: E5, zeiten: [], kategorien: [], berichte: [{ datei: 'M', abrechnen: true, seiten: '24' }], fotos: { anzahl: 60 } });
+  const z = r.titel.find(x => x.nr === 3).zeilen.find(x => x.key === 'neben');
+  assert.equal(z.gesamt, null); assert.match(r.hinweise.join('\n'), /Satz € je Berichtsseite \(24 Seiten\) fehlt/);
+  const E6 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '0', foto: '0,94', pauschale: '' } }));
+  const r6 = AW.abrechnung({ einstellungen: E6, zeiten: [], kategorien: [], berichte: [{ datei: 'M', abrechnen: true, seiten: '24' }], fotos: { anzahl: 60 } });
+  assert.equal(r6.titel.find(x => x.nr === 3).zeilen.find(x => x.key === 'neben').gesamt, 56.4, '„0“ eingetragen = Seiten kosten nichts');
+}
+// 3.002: Bericht ohne bestätigte Seitenzahl → kein Betrag (bisher: Betrag nur aus den übrigen Seiten, sah vollständig aus)
+{
+  const E7 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '7,50', foto: '0,94', pauschale: '' } }));
+  const r = AW.abrechnung({ einstellungen: E7, zeiten: [], kategorien: [], berichte: [{ datei: 'A', abrechnen: true, seiten: '24' }, { datei: 'B', abrechnen: true, seiten: '' }], fotos: { anzahl: 60 } });
+  const z = r.titel.find(x => x.nr === 3).zeilen.find(x => x.key === 'neben');
+  assert.equal(z.gesamt, null); assert.match(z.quelle, /24 Berichtsseiten \(1 Bericht ohne Seitenzahl\), 60 Fotos/);
+  const r2b = AW.abrechnung({ einstellungen: E7, zeiten: [], kategorien: [], berichte: [{ datei: 'A', abrechnen: true, seiten: '12,5' }], fotos: { anzahl: 0 } });
+  assert.match(r2b.hinweise.join('\n'), /Seitenzahl „12,5“ ist keine ganze Zahl/);
+  // ohne Sätze: fester Preis der Position bleibt als Vorschau möglich
+  const E8 = AW.STANDARD(); E8.positionen.find(x => x.key === 'neben').preis = '45,00';
+  const r8 = AW.abrechnung({ einstellungen: E8, zeiten: [], kategorien: [], berichte: [{ datei: 'A', abrechnen: true, seiten: '24' }], fotos: { anzahl: 0 } });
+  assert.equal(r8.titel[0].zeilen[0].gesamt, 45); assert.doesNotMatch(r8.hinweise.join('\n'), /Sätze für 3\.002/);
+}
+// Angekreuzter Bericht, dessen Datei fehlt (umbenannt): Hinweis statt still weniger Seiten
+{
+  const r = AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [{ datei: 'Bericht_neu', abrechnen: false }, { datei: 'Bericht_alt', abrechnen: true, seiten: '24', fehlt: true }], fotos: { anzahl: 0 } });
+  assert.match(r.hinweise.join('\n'), /„Bericht_alt“ ist zur Abrechnung angekreuzt, liegt aber nicht mehr in „Mitteilungen“/);
+  assert.equal(r.seiten, 0);
+}
+// Fotos-Hinweise (Unterordner, unlesbare FotoKit-Datei) und PN 98 ohne Laborproben
+assert.match(AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [], fotos: { anzahl: 3, hinweise: ['Im Ordner „Fotos“ liegen Bilder in Unterordnern'] } }).hinweise.join('\n'), /Unterordnern/);
+assert.match(AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [], labelkit: { pn98: 2, sonstige: 0 } }).hinweise.join('\n'), /2 PN-98-Protokolle, aber keine Proben unter „Sonstige“/);
+assert.doesNotMatch(AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [], labelkit: { pn98: 2, sonstige: 2 } }).hinweise.join('\n'), /PN-98/);
+// Was als Foto zählt
+assert.equal(AW.fotoDatei('IMG_4821.JPG'), true); assert.equal(AW.fotoDatei('26-0142_Küche.heic'), true);
+assert.equal(AW.fotoDatei('._IMG_4821.jpg'), false, 'Mac-Begleitdatei'); assert.equal(AW.fotoDatei('umb-tmp_IMG_1.jpg'), false, 'FotoKit-Zwischendatei');
+assert.equal(AW.fotoDatei('_Bildumbenenner.json'), false); assert.equal(AW.fotoDatei('Bilddoku.pdf'), false);
+
 console.log('BelegKit Logik: alle Prüfungen bestanden');

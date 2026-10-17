@@ -49,7 +49,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(base);
   await page.waitForFunction(() => document.getElementById('ver').textContent.startsWith('v1'));
 
@@ -136,7 +135,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.match(await page.locator('#seite').textContent(), /PAK – Wischproben\s*56[\s\S]*Chlorid – Wischproben\s*25[\s\S]*Asbest – Materialproben\s*2/);
   await bild(page, '2-proben');
   await page.locator('select[data-kat="asbest-material"]').selectOption('-');
-  await page.waitForFunction(() => /Einstellungen gespeichert/.test(document.getElementById('status').textContent));
+  await page.waitForFunction(() => /Zuordnung gespeichert|Einstellungen gespeichert/.test(document.getElementById('status').textContent));
   const einst = JSON.parse(await lies('_AufwandKit-Einstellungen.json'));
   assert.equal(einst.zuordnung['asbest-material'], '-');
   assert.equal(einst.geaendertVon, 'SK');
@@ -245,6 +244,49 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.locator('#eSpeichern').click();
   await page.waitForFunction(() => /Einstellungen gespeichert/.test(document.getElementById('status').textContent));
   assert.ok(JSON.parse(await lies('_AufwandKit-Einstellungen.json')).positionen.some(p => p.nr === '2.010' && p.text === 'Asbestanalyse(n)'));
+
+  // ---------- 1.3.2: nichts fällt still aus der Abrechnung ----------
+  const schreibeIn = (pfad, inhalt) => page.evaluate(async ({ PROJ, pfad, inhalt }) => {
+    let d = await (await navigator.storage.getDirectory()).getDirectoryHandle('Mosaik Archivordner');
+    const teile = pfad.split('/'); for (const t of teile.slice(0, -1)) d = await d.getDirectoryHandle(t === '§' ? PROJ : t, { create: true });
+    const w = await (await d.getFileHandle(teile[teile.length - 1], { create: true })).createWritable(); await w.write(inhalt); await w.close();
+  }, { PROJ, pfad, inhalt });
+  const loesche = pfad => page.evaluate(async ({ PROJ, pfad }) => {
+    let d = await (await navigator.storage.getDirectory()).getDirectoryHandle('Mosaik Archivordner');
+    const teile = pfad.split('/'); for (const t of teile.slice(0, -1)) d = await d.getDirectoryHandle(t === '§' ? PROJ : t);
+    await d.removeEntry(teile[teile.length - 1], { recursive: true });
+  }, { PROJ, pfad });
+  // Ein Kollege speichert inzwischen einen anderen Preis: Zuordnung ändern darf ihn nicht zurückschreiben
+  { const e = JSON.parse(await lies('_AufwandKit-Einstellungen.json')); e.positionen.find(x => x.key === 'sv1').preis = '150,00'; e.geaendert = '2030-01-01T00:00:00.000Z'; e.geaendertVon = 'XY';
+    await schreibeIn('_AufwandKit-Einstellungen.json', JSON.stringify(e)); }
+  await page.locator('button[data-tab="proben"]').click();
+  await page.locator('select[data-kat="asbest-material"]').selectOption('');
+  await page.waitForFunction(() => /Zuordnung gespeichert/.test(document.getElementById('status').textContent));
+  { const e = JSON.parse(await lies('_AufwandKit-Einstellungen.json'));
+    assert.equal(e.positionen.find(x => x.key === 'sv1').preis, '150,00', 'Preis des Kollegen bleibt');
+    assert.equal(e.zuordnung['asbest-material'], undefined); assert.equal(e.zuordnung['pak-wisch'], 'lab-pak'); }
+  // … und „Einstellungen speichern“ fragt, statt den neueren Stand still zu überschreiben
+  await page.locator('button[data-tab="einst"]').click();
+  let gefragt = '';
+  page.once('dialog', d => { gefragt = d.message(); d.dismiss(); });
+  await page.locator('#eSpeichern').click();
+  await page.waitForTimeout(500);
+  assert.match(gefragt, /Einstellungen wurden inzwischen gespeichert/);
+  assert.equal(JSON.parse(await lies('_AufwandKit-Einstellungen.json')).positionen.find(x => x.key === 'sv1').preis, '150,00', 'abgebrochen: nichts überschrieben');
+
+  // Unlesbare Zeiten-Datei, umbenannter Bericht, Fotos im Unterordner, Mac-Begleitdatei
+  await schreibeIn('§/Abrechnung/Aufwand_ZZ.json', '{ kaputt');
+  for (const x of ['docx', 'pdf']){ await schreibeIn('§/Mitteilungen/2__Mitteilung_final.' + x, await page.evaluate(() => 'x')); await loesche('§/Mitteilungen/1__Mitteilung.' + x); }
+  await schreibeIn('§/Fotos/Ortstermin 2/IMG_1.jpg', 'x'); await schreibeIn('§/Fotos/Ortstermin 2/IMG_2.jpg', 'x'); await schreibeIn('§/Fotos/._26.0389_001.jpg', 'x');
+  await page.locator('#bNeu').click(); await page.locator('nav.tabs').waitFor();
+  await page.locator('button[data-tab="abrechnung"]').click();
+  const t2 = await page.locator('#seite').textContent();
+  assert.match(t2, /„Aufwand_ZZ\.json“ ist nicht lesbar – die Zeiten von ZZ fehlen in der Abrechnung/);
+  assert.match(t2, /Bericht „1__Mitteilung“ ist zur Abrechnung angekreuzt, liegt aber nicht mehr in „Mitteilungen“/);
+  assert.match(t2, /Bilder in Unterordnern \(Ortstermin 2 \(2\)\)/);
+  assert.doesNotMatch(t2, /3 Berichtsseiten/, 'Seiten des verschwundenen Berichts nicht still mitgezählt');
+  await page.locator('button[data-tab="bericht"]').click();
+  assert.match(await page.locator('#seite').textContent(), /5 Fotos \(6 Bilder im Ordner „Fotos“, davon 1 in FotoKit aussortiert\)/, 'Mac-Begleitdatei nicht gezählt');
 
   const breit = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(breit <= 1, 'keine waagrechte Bildlaufleiste (' + breit + ' px)');
