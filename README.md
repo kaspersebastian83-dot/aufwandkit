@@ -4,7 +4,13 @@
 
 Erfasst je Projekt, was in die Rechnung gehört – mit den Positionsnummern der Rechnung, zum Übertragen ins Rechnungsprogramm. Die Rechnung selbst (Nummer, Umsatzsteuer, Archiv) bleibt im Rechnungsprogramm.
 
-Teil der App-Familie: **Projektzentrale** (Absprung „Abrechnung → BelegKit“), **LabelKit**, **FotoKit**, **PlanKit**. Alles läuft im Browser (Chrome oder Edge) direkt auf dem Projektordner; nichts wird hochgeladen.
+**App öffnen:** https://kaspersebastian83-dot.github.io/aufwandkit/ · aktuelle Version **1.3.2** (Änderungen: Klick auf die Versionsnummer in der App)
+
+Schritt ④ der Büro-App-Suite **Spektron**: **Projektzentrale** (Absprung „Abrechnung → BelegKit“), **LabelKit**, **FotoKit**, **PlanKit**, dazu ohne Projektbezug **SpesenKit** (monatliche Spesenabrechnung je Person). Übersicht im [README der Projektzentrale](https://github.com/kaspersebastian83-dot/Projektzentrale#readme). Alles läuft im Browser (Chrome oder Edge) direkt auf dem Projektordner; nichts wird hochgeladen.
+
+- **Leiste oben (ab 1.3):** wie in LabelKit, FotoKit und PlanKit – Projekt mit Wechsel zu den zuletzt geöffneten, die vier Arbeitsschritte mit Haken und „Weiter: …“.
+- **Projektdaten (ab 1.2):** Objekt, Auftraggeber und Schaden-Nr. aus `_Projekt.json` stehen oben auf jeder Seite und im gespeicherten Stand (nur Ansicht, geändert wird in der Projektzentrale).
+- **Kürzel (ab 1.1.1):** wird mit LabelKit geteilt – einmal eintragen, gilt in beiden Apps.
 
 ## Was gezählt wird
 
@@ -15,7 +21,7 @@ Teil der App-Familie: **Projektzentrale** (Absprung „Abrechnung → BelegKit�
 | Titel 3 – Stunden Auswertung / Bericht | „Meine Zeiten“, Tätigkeit „Auswertung / Bericht“. |
 | 3.002 Schreib-, Versand- und Nebenkosten, Fotos | Seiten der abzurechnenden Berichte in `Mitteilungen` (aus der PDF-Fassung gezählt oder von Hand bestätigt – die Angabe in der Word-Datei ist oft veraltet) und Fotos in `Fotos` ohne die in FotoKit aussortierten. Mit den Sätzen € je Seite / € je Foto / fester Anteil ergibt sich der Pauschalbetrag. |
 
-Hinweise statt stiller Annahmen: nicht zugeordnete Probenarten, km von zwei Personen am selben Tag (Fahrgemeinschaft?), Ortstermin ohne Stunden, keine Zahl, Bericht ohne bestätigte Seitenzahl, Position ohne Nummer, fehlende Sätze. Ebenso, wenn eine Quelle nicht gelesen werden kann (Zeiten-Datei eines Kollegen, LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei), ein angekreuzter Bericht nicht mehr in `Mitteilungen` liegt oder Fotos in Unterordnern von `Fotos` liegen – nichts fällt still aus der Abrechnung.
+Hinweise statt stiller Annahmen: Zahlen mit Tausenderpunkt („1.250“) oder ein Preis, der keine Zahl ist (ab 1.3.1), nicht zugeordnete Probenarten, km von zwei Personen am selben Tag (Fahrgemeinschaft?), Ortstermin ohne Stunden, keine Zahl, Bericht ohne bestätigte Seitenzahl, Position ohne Nummer, fehlende Sätze. Ebenso, wenn eine Quelle nicht gelesen werden kann (Zeiten-Datei eines Kollegen, LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei), ein angekreuzter Bericht nicht mehr in `Mitteilungen` liegt oder Fotos in Unterordnern von `Fotos` liegen – nichts fällt still aus der Abrechnung.
 
 Beträge (nur Vorschau): Menge × Preis kaufmännisch auf Cent gerundet, mit der Menge wie kopiert (zwei Nachkommastellen). Ein Betrag erscheint nur, wenn alles feststeht – fehlt ein Satz für vorhandene Seiten oder Fotos oder die Seitenzahl eines angekreuzten Berichts, bleibt 3.002 ohne Betrag (Satz „0“ = kostenlos).
 
@@ -42,4 +48,4 @@ NODE_PATH=… node tests/browser.cjs chromium   # braucht Playwright (nicht im R
 NODE_PATH=… node tests/leiste-browser.cjs chromium   # Leiste mit Projekt, Arbeitsschritten und „Weiter“
 ```
 
-`tests/logik.cjs` rechnet unter anderem die Beispielrechnung 202600542 nach (Titel 1: 8.166,83 €, Titel 2: 6.570,00 €, netto 15.988,23 €). Der Browsertest bildet einen Projektordner im Origin Private File System nach (LabelKit-Datei, Fotos, Bericht als Word mit veralteter Seitenzahl und als PDF) und prüft Erfassung, Zuordnung, Seitenzahl, Abrechnung, Kopieren und „Stand speichern“; mit `SHOTS=<Ordner>` entstehen Bildschirmfotos. Beide laufen bei jedem Pull Request auf GitHub (Chromium und WebKit).
+`tests/leiste-browser.cjs` prüft die gemeinsame Leiste (gleicher Test wie in LabelKit, FotoKit und PlanKit). `tests/logik.cjs` rechnet unter anderem die Beispielrechnung 202600542 nach (Titel 1: 8.166,83 €, Titel 2: 6.570,00 €, netto 15.988,23 €). Der Browsertest bildet einen Projektordner im Origin Private File System nach (LabelKit-Datei, Fotos, Bericht als Word mit veralteter Seitenzahl und als PDF) und prüft Erfassung, Zuordnung, Seitenzahl, Abrechnung, Kopieren und „Stand speichern“; mit `SHOTS=<Ordner>` entstehen Bildschirmfotos. Alle Tests laufen bei jedem Pull Request auf GitHub (Browsertests in Chromium und WebKit).
