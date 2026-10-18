@@ -15,7 +15,9 @@ Teil der App-Familie: **Projektzentrale** (Absprung „Abrechnung → BelegKit�
 | Titel 3 – Stunden Auswertung / Bericht | „Meine Zeiten“, Tätigkeit „Auswertung / Bericht“. |
 | 3.002 Schreib-, Versand- und Nebenkosten, Fotos | Seiten der abzurechnenden Berichte in `Mitteilungen` (aus der PDF-Fassung gezählt oder von Hand bestätigt – die Angabe in der Word-Datei ist oft veraltet) und Fotos in `Fotos` ohne die in FotoKit aussortierten. Mit den Sätzen € je Seite / € je Foto / fester Anteil ergibt sich der Pauschalbetrag. |
 
-Hinweise statt stiller Annahmen: nicht zugeordnete Probenarten, km von zwei Personen am selben Tag (Fahrgemeinschaft?), Ortstermin ohne Stunden, keine Zahl, Bericht ohne bestätigte Seitenzahl, Position ohne Nummer, fehlende Sätze.
+Hinweise statt stiller Annahmen: nicht zugeordnete Probenarten, km von zwei Personen am selben Tag (Fahrgemeinschaft?), Ortstermin ohne Stunden, keine Zahl, Bericht ohne bestätigte Seitenzahl, Position ohne Nummer, fehlende Sätze. Ebenso, wenn eine Quelle nicht gelesen werden kann (Zeiten-Datei eines Kollegen, LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei), ein angekreuzter Bericht nicht mehr in `Mitteilungen` liegt oder Fotos in Unterordnern von `Fotos` liegen – nichts fällt still aus der Abrechnung.
+
+Beträge (nur Vorschau): Menge × Preis kaufmännisch auf Cent gerundet, mit der Menge wie kopiert (zwei Nachkommastellen). Ein Betrag erscheint nur, wenn alles feststeht – fehlt ein Satz für vorhandene Seiten oder Fotos oder die Seitenzahl eines angekreuzten Berichts, bleibt 3.002 ohne Betrag (Satz „0“ = kostenlos).
 
 ## Dateien
 
