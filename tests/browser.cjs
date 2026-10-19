@@ -128,6 +128,44 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.equal(mein.kuerzel, 'SK');
   assert.deepEqual(mein.eintraege.map(e => [e.datum, e.art, e.stunden, e.km]), [['2026-07-28', 'ort', '17', '1425'], ['2026-07-28', 'buero', '7', '']]);
   assert.match(await page.locator('#kollegen').textContent(), /SK\s*17\s*7\s*1\.425/);
+
+  const bisDatei = async (ok) => { for (let k = 0; k < 100; k++){ try{ if (ok(JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json')))) return; }catch(e){} await page.waitForTimeout(100); } throw new Error('Aufwand_SK.json nicht wie erwartet gespeichert'); };
+  // 1.4: Route in Google Maps – eigenes Fenster (Start → Objekt → Start), km übernehmen, Link am Eintrag gespeichert
+  assert.equal(await page.locator('#zRows tr[data-i="1"] button[data-route]').count(), 0, 'kein Routen-Knopf bei Auswertung/Bericht');
+  await page.evaluate(() => { window.__fenster = []; window.open = (u, n, f) => { window.__fenster.push([u, n, f]); return null; }; });
+  await page.locator('#zRows tr[data-i="0"] button[data-route]').click();
+  assert.equal(await page.locator('#rStart').inputValue(), 'Gouleystraße 59, 52146 Würselen');
+  assert.equal(await page.locator('#rZiel').inputValue(), 'EFH, Musterweg 7, 52525 Heinsberg', 'Ziel aus den Projektdaten');
+  assert.equal(await page.locator('#rKm').inputValue(), '1425');
+  await bild(page, 'route-dialog');
+  await page.locator('#rOeffnen').click();
+  const [[url, , merkmale]] = await page.evaluate(() => window.__fenster);
+  const u = new URL(url);
+  assert.equal(u.origin + u.pathname, 'https://www.google.com/maps/dir/');
+  assert.deepEqual([u.searchParams.get('api'), u.searchParams.get('origin'), u.searchParams.get('destination'), u.searchParams.get('waypoints'), u.searchParams.get('travelmode')],
+    ['1', 'Gouleystraße 59, 52146 Würselen', 'Gouleystraße 59, 52146 Würselen', 'EFH, Musterweg 7, 52525 Heinsberg', 'driving'], 'Hin- und Rückfahrt');
+  assert.match(merkmale, /noopener/);
+  await page.locator('#rLink').fill('https://example.com/maps/route');
+  await page.locator('#rOk').click();
+  assert.match(await page.locator('#rHinweis').textContent(), /Google Maps/, 'fremder Link wird abgelehnt');
+  await page.locator('#rLink').fill('https://maps.app.goo.gl/AbC123xyz');
+  await page.locator('#rOk').click();
+  await page.locator('#dlgBack.show').waitFor({ state: 'detached' }).catch(() => {});
+  assert.equal(await page.locator('#dlgBack').evaluate(e => e.classList.contains('show')), false);
+  assert.equal(await page.locator('#zRows tr[data-i="0"] button[data-route]').evaluate(e => e.classList.contains('hat')), true);
+  await page.waitForFunction(() => /gespeichert in „Abrechnung\/Aufwand_SK\.json“/.test(document.getElementById('status').textContent));
+  await bisDatei(j => j.eintraege[0].route === 'https://maps.app.goo.gl/AbC123xyz');
+  mein = JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json'));
+  assert.deepEqual([mein.eintraege[0].km, mein.eintraege[0].routeZiel, mein.eintraege[0].routeRund], ['1425', 'EFH, Musterweg 7, 52525 Heinsberg', true]);
+  // nur Hinfahrt, ohne eigenen Link → erzeugter Link wird gespeichert; Start wird für das nächste Mal gemerkt
+  await page.locator('#zRows tr[data-i="0"] button[data-route]').click();
+  await page.locator('#rStart').fill('Am Markt 1, 52062 Aachen'); await page.locator('#rRund').uncheck(); await page.locator('#rLink').fill('');
+  await page.locator('#rOk').click();
+  await bisDatei(j => /destination=EFH/.test(j.eintraege[0].route || ''));
+  mein = JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json'));
+  const r2 = new URL(mein.eintraege[0].route);
+  assert.deepEqual([r2.searchParams.get('origin'), r2.searchParams.get('destination'), r2.searchParams.get('waypoints')], ['Am Markt 1, 52062 Aachen', 'EFH, Musterweg 7, 52525 Heinsberg', null]);
+  assert.equal(await page.evaluate(() => localStorage.getItem('aufwandkit-start')), 'Am Markt 1, 52062 Aachen');
   await bild(page, '1-zeiten');
 
   // Proben: Kategorien und Zuordnung (Asbest → nicht abrechnen) – landet in den gemeinsamen Einstellungen

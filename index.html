@@ -33,6 +33,12 @@ button:hover{border-color:var(--accent-l);color:var(--accent)}
 button.primary{background:var(--primary);border-color:var(--accent-2);color:var(--on-accent);font-weight:600;box-shadow:0 2px 6px rgba(26,74,122,.22)}
 button.primary:hover{background:var(--primary-h);color:var(--on-accent)}
 button.x{border:0;background:none;color:var(--muted);padding:2px 6px}
+.kmzelle{white-space:nowrap}
+button.route{border:1px solid var(--line,#d0d5dc);background:none;border-radius:4px;padding:1px 5px;margin-left:4px;font-size:13px;line-height:1.3;cursor:pointer;vertical-align:middle}
+button.route.hat{border-color:#2e7d4f;color:#2e7d4f}
+#dlg .routeform{display:grid;grid-template-columns:auto 1fr;gap:8px 10px;align-items:center;margin:10px 0}
+#dlg .routeform input[type=text],#dlg .routeform input[type=url]{width:100%;min-width:0;box-sizing:border-box}
+#dlg .routeform .voll{grid-column:1/-1}
 button.x:hover{color:var(--err)}
 button.link{border:0;background:none;color:var(--accent);padding:0;text-decoration:underline}
 input[type=text],input[type=search],input[type=date],select,textarea{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:4px 7px;min-width:0}
@@ -387,9 +393,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.3.3';
+const APP_VERSION = '1.4.0';
 const APP_DATE = '2026-10-18';
 const CHANGELOG = [
+  ['1.4.0', '19.10.2026', 'Neu: 🗺 neben den km jedes Ortstermins – öffnet Google Maps in einem eigenen Fenster mit Büro → Objekt → Büro (Objekt aus der Projektzentrale, Start änderbar, auch nur Hinfahrt). km ablesen und übernehmen; der Link zur Route wird am Eintrag gespeichert (auch ein in Google Maps angepasster, geteilter Link), damit die km später nachvollziehbar sind. BelegKit selbst verbindet sich weiterhin mit keinem fremden Server. Außerdem behoben: Die Leiste oben zeigt jetzt das Objekt aus der Projektzentrale neben dem Projekt.'],
   ['1.3.3', '18.10.2026', 'Die Leiste oben zeigt links den Namen der App-Suite „Spektron“ (die Büro-Apps Projektzentrale, LabelKit, FotoKit, PlanKit, BelegKit und SpesenKit). Sonst unverändert.'],
   ['1.3.2', '18.10.2026', 'Prüflauf Rechnung: Beträge werden kaufmännisch auf Cent gerundet (bisher z. B. 0,3 km × 0,75 € = 0,22 statt 0,23 €). PDF-Berichte, die nachträglich gespeichert wurden (Acrobat, Kommentare, Signatur), werden nicht mehr doppelt gezählt. 3.002 zeigt keinen Betrag mehr, solange ein Satz fehlt (bisher kosteten die Seiten still 0 €, wenn nur der Foto-Satz eingetragen war) oder ein angekreuzter Bericht noch keine Seitenzahl hat; Seitenzahlen müssen ganze Zahlen sein. Neue Hinweise statt still fehlender Mengen: unlesbare Zeiten-Datei eines Kollegen, unlesbare LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei, angekreuzter Bericht, der umbenannt wurde, Fotos in Unterordnern, Übernachtungsbetrag ohne Anzahl, PN-98-Protokolle ohne Laborproben. Mac-Begleitdateien („._…“) und FotoKit-Zwischendateien zählen nicht als Fotos. Bohrkerne aus dem LabelKit-Assistenten gelten nicht mehr fälschlich als „ohne Bezeichnung“. Die Zuordnung einer Probenart überschreibt keine Preise mehr, die ein Kollege inzwischen gespeichert hat; „Einstellungen speichern“ fragt nach, wenn jemand dazwischen gespeichert hat. Menge und Vorschaubetrag rechnen mit denselben zwei Nachkommastellen wie das Rechnungsprogramm.'],
   ['1.3.1', '17.10.2026', 'Zahlen mit Tausenderpunkt („1.250“, „1.250,00“) werden nicht mehr still falsch gelesen (bisher wurde aus „1.250“ 1,25), sondern als Hinweis gemeldet. Ein Preis oder Satz, der keine Zahl ist, erscheint jetzt als Hinweis statt einfach zu fehlen. Leiste: Das Projektmenü bleibt offen, während die Leiste sich im Hintergrund aktualisiert.'],
@@ -695,16 +702,66 @@ function zeichneZeiten(){
   $('zNeu').onclick = () => neu('ort'); $('zNeuB').onclick = () => neu('buero');
   const tb = $('zRows');
   tb.oninput = tb.onchange = e => { const el = e.target, i = +el.closest('tr').dataset.i, f = el.dataset.f; if (!f || A.meine[i][f] === el.value) return; A.meine[i][f] = el.value;   /* „change“ beim Verlassen eines schon gespeicherten Felds löst keine zweite Speicherung aus */ if (f === 'art') zeichneZeiten(); meineGeaendert(); };
-  tb.onclick = e => { const b = e.target.closest('button[data-weg]'); if (!b) return; const i = +b.dataset.weg, x = A.meine[i];
+  tb.onclick = e => { const r = e.target.closest('button[data-route]'); if (r){ routeDialog(+r.dataset.route); return; } const b = e.target.closest('button[data-weg]'); if (!b) return; const i = +b.dataset.weg, x = A.meine[i];
     if ((x.stunden || x.km) && !confirm(`Eintrag vom ${AW.datumDe(x.datum)} löschen?`)) return; A.meine.splice(i, 1); zeichneZeiten(); meineGeaendert(); };
   zeichneKollegen();
+}
+/* ---------- Route in Google Maps (1.4) ----------
+   Öffnet Google Maps in einem eigenen Fenster mit Start → Objekt (→ Start). BelegKit selbst verbindet sich mit keinem
+   fremden Server (Content Security Policy bleibt unverändert). km werden abgelesen und eingetragen; der Link zur Route
+   wird am Eintrag gespeichert, damit die km später nachvollziehbar sind. */
+const START_STANDARD = 'Gouleystraße 59, 52146 Würselen';
+const routeStart = () => { try{ return localStorage.getItem('aufwandkit-start') || START_STANDARD; }catch(e){ return START_STANDARD; } };
+const MAPS_LINK = /^https:\/\/((www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?\/maps[/?]|maps\.google\.[a-z]{2,3}(\.[a-z]{2})?\/|maps\.app\.goo\.gl\/|goo\.gl\/maps\/)/i;
+function routeUrl(start, ziel, rund){
+  const q = new URLSearchParams({ api: '1', origin: start, destination: rund ? start : ziel, travelmode: 'driving' });
+  if (rund) q.set('waypoints', ziel);
+  return 'https://www.google.com/maps/dir/?' + q.toString();
+}
+function oeffneKarte(url){
+  if (!/^https:\/\//.test(url)) return;
+  const sw = (screen.availWidth || 1400), sh = (screen.availHeight || 900), w = Math.max(480, Math.round(sw / 2));
+  window.open(url, '_blank', `noopener,noreferrer,popup,width=${w},height=${sh},left=${sw - w},top=0`);
+}
+function routeDialog(i){
+  const e = A.meine[i]; if (!e) return;
+  const ziel = e.routeZiel || projektdaten().objekt || A.proj && A.proj.ort || '';
+  $('dlg').innerHTML = `<h3>Route für den Ortstermin am ${esc(AW.datumDe(e.datum))}</h3>
+    <div class="m">Google Maps öffnet sich in einem eigenen Fenster. Dort die Route bei Bedarf anpassen (ziehen, Zwischenziele), die km ablesen und hier eintragen.</div>
+    <div class="routeform">
+      <label for="rStart">Start</label><input type="text" id="rStart" value="${esc(e.routeStart || routeStart())}">
+      <label for="rZiel">Ziel</label><input type="text" id="rZiel" value="${esc(ziel)}" placeholder="Adresse des Objekts">
+      <span></span><label class="m"><input type="checkbox" id="rRund"${e.routeRund === false ? '' : ' checked'}> Hin- und Rückfahrt (zurück zum Start)</label>
+      <span></span><div><button id="rOeffnen" class="primary">🗺 In Google Maps öffnen</button>${e.route ? ' <button id="rAlt">Gespeicherte Route ansehen</button>' : ''}</div>
+      <label for="rKm">km</label><input type="text" id="rKm" inputmode="decimal" value="${esc(e.km)}" style="width:90px">
+      <label for="rLink">Link zur Route</label><input type="url" id="rLink" value="${esc(e.route && e.route !== routeUrl(e.routeStart || '', e.routeZiel || '', e.routeRund !== false) ? e.route : '')}" placeholder="optional: angepasste Route aus Google Maps → Teilen → Link kopieren">
+      <span class="m voll" id="rHinweis"></span>
+    </div>
+    <div class="btns"><button id="rAbbr">Abbrechen</button><button id="rOk" class="primary">Übernehmen</button></div>`;
+  $('dlgBack').classList.add('show');
+  const zu = () => $('dlgBack').classList.remove('show');
+  const werte = () => ({ start: $('rStart').value.trim(), ziel: $('rZiel').value.trim(), rund: $('rRund').checked });
+  $('rOeffnen').onclick = () => { const w = werte(); if (!w.start || !w.ziel){ $('rHinweis').textContent = 'Bitte Start und Ziel angeben.'; return; } oeffneKarte(routeUrl(w.start, w.ziel, w.rund)); $('rKm').focus(); };
+  if ($('rAlt')) $('rAlt').onclick = () => oeffneKarte(e.route);
+  $('rAbbr').onclick = zu;
+  $('rOk').onclick = () => {
+    const w = werte(), link = $('rLink').value.trim(), km = $('rKm').value.trim();
+    if (link && !MAPS_LINK.test(link)){ $('rHinweis').textContent = 'Der Link muss von Google Maps stammen (https://www.google.…/maps… oder https://maps.app.goo.gl/…).'; return; }
+    if (km && !(AW.zahl ? isFinite(AW.zahl(km)) : /^\d+([.,]\d+)?$/.test(km))){ $('rHinweis').textContent = 'km bitte als Zahl eintragen, z. B. 84,5.'; return; }
+    if (!w.ziel && !link){ $('rHinweis').textContent = 'Bitte ein Ziel angeben.'; return; }
+    e.km = km; e.routeStart = w.start; e.routeZiel = w.ziel; e.routeRund = w.rund;
+    e.route = link || routeUrl(w.start, w.ziel, w.rund);
+    try{ if (w.start) localStorage.setItem('aufwandkit-start', w.start); }catch(x){}
+    zu(); zeichneZeiten(); meineGeaendert();
+  };
+  setTimeout(() => $(ziel ? 'rOeffnen' : 'rZiel').focus(), 0);
 }
 function zeileHtml(e, i){
   const inp = (f, w, typ) => `<input type="${typ || 'text'}" data-f="${f}" value="${esc(e[f])}" style="width:${w}"${typ ? '' : ' inputmode="decimal"'} class="${typ ? '' : 'r'}">`;
   const sel = (f, opts) => `<select data-f="${f}">${opts.map(([v, l]) => `<option value="${esc(v)}"${e[f] === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
   const buero = e.art === 'buero';
   return `<tr data-i="${i}"><td><input type="date" data-f="datum" value="${esc(e.datum)}"></td><td>${sel('art', Object.entries(AW.ARTEN))}</td><td>${sel('rolle', AW.ROLLEN.map(r => [r, r]))}</td>
-    <td>${inp('stunden', '64px')}</td><td>${buero ? '' : inp('km', '70px')}</td><td>${buero ? '' : inp('spesen', '56px')}</td><td>${buero ? '' : inp('hotelAnzahl', '48px')}</td><td>${buero ? '' : inp('hotelBetrag', '76px')}</td>
+    <td>${inp('stunden', '64px')}</td><td class="kmzelle">${buero ? '' : inp('km', '70px') + `<button class="route${e.route ? ' hat' : ''}" data-route="${i}" title="${e.route ? 'Route ansehen oder ändern (in Google Maps nachvollziehbar)' : 'Route in Google Maps planen und km übernehmen'}">🗺${e.route ? '✓' : ''}</button>`}</td><td>${buero ? '' : inp('spesen', '56px')}</td><td>${buero ? '' : inp('hotelAnzahl', '48px')}</td><td>${buero ? '' : inp('hotelBetrag', '76px')}</td>
     <td><input type="text" data-f="notiz" value="${esc(e.notiz)}" style="width:100%;min-width:120px"></td><td><button class="x" data-weg="${i}" title="Eintrag löschen">✕</button></td></tr>`;
 }
 function zeichneKollegen(){
@@ -857,7 +914,7 @@ function meldung(art, html){ const b = $('banner'); b.className = 'show ' + art;
 function versteckeMeldung(){ $('banner').className = ''; $('banner').innerHTML = ''; }
 function info(){
   $('dlg').innerHTML = `<h3>${APP_NAME} ${APP_VERSION}</h3><div class="m"><p>Erfasst, was in die Rechnung gehört: Zeiten, km, Spesen, Übernachtungen je Kollege, Proben aus LabelKit, Berichtsseiten und Fotos. Die Rechnung selbst entsteht im Rechnungsprogramm.</p>
-    <ol><li><b>Meine Zeiten:</b> Kürzel eintragen, je Ortstermin Stunden (inkl. Fahrt), km (nur der Fahrer), Spesentage und Übernachtung mit Betrag lt. Beleg; Auswertung und Bericht als eigene Einträge.</li>
+    <ol><li><b>Meine Zeiten:</b> Kürzel eintragen, je Ortstermin Stunden (inkl. Fahrt), km (nur der Fahrer), Spesentage und Übernachtung mit Betrag lt. Beleg; Auswertung und Bericht als eigene Einträge. 🗺 neben den km öffnet die Route in Google Maps (Büro → Objekt → Büro), der Link bleibt am Eintrag gespeichert.</li>
     <li><b>Proben:</b> jede Probenart einmal einer Rechnungsposition zuordnen (gilt danach für alle Projekte).</li>
     <li><b>Bericht &amp; Fotos:</b> abzurechnende Berichte ankreuzen, Seitenzahl bestätigen.</li>
     <li><b>Abrechnung:</b> Hinweise klären, „Kopieren“ und ins Rechnungsprogramm einfügen, „Stand speichern“.</li></ol>
@@ -952,7 +1009,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     var s = { label: false, fotos: false, plan: false, beleg: false, objekt: '' };
     try{
       var pj = await proj.getFileHandle('_Projekt.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); }).catch(function(){ return ''; });
-      if (pj){ var j = JSON.parse(pj); if (j && j.daten && typeof j.daten.objekt === 'string') s.objekt = j.daten.objekt.trim(); }
+      if (pj){ var j = JSON.parse(pj), o = j && (typeof j.objekt === 'string' ? j.objekt : j.daten && j.daten.objekt); if (typeof o === 'string') s.objekt = o.trim(); }   // Projektzentrale schreibt die Felder direkt in _Projekt.json (ältere Testdateien: unter „daten“)
     }catch(e3){}
     try{ var fo = await unterordner(proj, 'Fotos'); if (fo) s.fotos = await fo.getFileHandle('_Bildumbenenner.json').then(function(){ return true; }, function(){ return false; }); }catch(e4){}
     try{
