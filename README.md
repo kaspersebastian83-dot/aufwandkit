@@ -4,7 +4,7 @@
 
 Erfasst je Projekt, was in die Rechnung gehört – mit den Positionsnummern der Rechnung, zum Übertragen ins Rechnungsprogramm. Die Rechnung selbst (Nummer, Umsatzsteuer, Archiv) bleibt im Rechnungsprogramm.
 
-**App öffnen:** https://kaspersebastian83-dot.github.io/aufwandkit/ · aktuelle Version **1.3.3** (Änderungen: Klick auf die Versionsnummer in der App)
+**App öffnen:** https://kaspersebastian83-dot.github.io/aufwandkit/ · aktuelle Version **1.4.0** (Änderungen: Klick auf die Versionsnummer in der App)
 
 Schritt ④ der Büro-App-Suite **Spektron**: **Projektzentrale** (Absprung „Abrechnung → BelegKit“), **LabelKit**, **FotoKit**, **PlanKit**, dazu ohne Projektbezug **SpesenKit** (monatliche Spesenabrechnung je Person). Übersicht im [README der Projektzentrale](https://github.com/kaspersebastian83-dot/Projektzentrale#readme). Alles läuft im Browser (Chrome oder Edge) direkt auf dem Projektordner; nichts wird hochgeladen.
 
@@ -22,6 +22,8 @@ Schritt ④ der Büro-App-Suite **Spektron**: **Projektzentrale** (Absprung „A
 | 3.002 Schreib-, Versand- und Nebenkosten, Fotos | Seiten der abzurechnenden Berichte in `Mitteilungen` (aus der PDF-Fassung gezählt oder von Hand bestätigt – die Angabe in der Word-Datei ist oft veraltet) und Fotos in `Fotos` ohne die in FotoKit aussortierten. Mit den Sätzen € je Seite / € je Foto / fester Anteil ergibt sich der Pauschalbetrag. |
 
 Hinweise statt stiller Annahmen: Zahlen mit Tausenderpunkt („1.250“) oder ein Preis, der keine Zahl ist (ab 1.3.1), nicht zugeordnete Probenarten, km von zwei Personen am selben Tag (Fahrgemeinschaft?), Ortstermin ohne Stunden, keine Zahl, Bericht ohne bestätigte Seitenzahl, Position ohne Nummer, fehlende Sätze. Ebenso, wenn eine Quelle nicht gelesen werden kann (Zeiten-Datei eines Kollegen, LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei), ein angekreuzter Bericht nicht mehr in `Mitteilungen` liegt oder Fotos in Unterordnern von `Fotos` liegen – nichts fällt still aus der Abrechnung.
+
+**Route in Google Maps (ab 1.4):** 🗺 neben den km eines Ortstermins öffnet Google Maps in einem eigenen Fenster – Start (Standard: Büro Gouleystraße 59, Würselen; änderbar, wird im Browser gemerkt) → Objekt aus der Projektzentrale → zurück zum Start (oder nur Hinfahrt). Route dort bei Bedarf anpassen, km ablesen und übernehmen. Der Link zur Route wird am Eintrag in `Aufwand_<Kürzel>.json` gespeichert (`route`, dazu `routeStart`, `routeZiel`, `routeRund`); ein in Google Maps angepasster Weg kann über „Teilen → Link kopieren“ eingefügt werden. BelegKit selbst lädt nichts von Google – die Content Security Policy bleibt unverändert, die Adressen sieht nur Google Maps im eigenen Fenster.
 
 Beträge (nur Vorschau): Menge × Preis kaufmännisch auf Cent gerundet, mit der Menge wie kopiert (zwei Nachkommastellen). Ein Betrag erscheint nur, wenn alles feststeht – fehlt ein Satz für vorhandene Seiten oder Fotos oder die Seitenzahl eines angekreuzten Berichts, bleibt 3.002 ohne Betrag (Satz „0“ = kostenlos).
 
