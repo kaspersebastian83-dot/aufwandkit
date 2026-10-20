@@ -443,9 +443,12 @@ async function unter(dir, name, anlegen){
 }
 async function liesJson(dir, name){
   if (!dir) return null;
-  let f; try{ f = await (await dir.getFileHandle(name)).getFile(); }catch(e){ return null; }
-  const txt = await f.text(); if (!txt.trim()) return { daten: {}, datei: f };
-  try{ return { daten: JSON.parse(txt), datei: f }; }catch(e){ throw new Error(`„${name}“ ist nicht lesbar (${e.message}) – wird nicht überschrieben.`); }
+  try{
+    let h;
+    try{ h = await dir.getFileHandle(name); }catch(e){ if (e.name === 'NotFoundError') return null; throw e; }
+    const f = await h.getFile();
+    return { daten: JSON.parse(await f.text()), datei: f };
+  }catch(e){ throw new Error(`„${name}“ ist nicht lesbar (${e.message}) – wird nicht überschrieben. Bitte Zugriff und Datei prüfen und erneut versuchen.`); }
 }
 async function schreibJson(dir, name, obj){
   const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
@@ -517,7 +520,7 @@ async function zeigeAuswahl(){
   $('pListe').onclick = e => { const b = e.target.closest('button[data-n]'); if (b) oeffne(b.dataset.n); };
 }
 async function oeffne(name){
-  await sichereMeine();   // offene Eingaben gehören noch zum bisherigen Projekt
+  try{ await sichereMeine(); }catch(e){ return; }   // offene Eingaben gehören noch zum bisherigen Projekt
   let dir; try{ dir = await A.archiv.getDirectoryHandle(name); }catch(e){ meldung('err', `Projekt „${esc(name)}“ nicht gefunden in „${esc(A.archiv.name)}“.`); await zeigeAuswahl(); return; }
   const p = parseProj(name) || { nr: name, ort: '' };
   A.proj = { name, nr: p.nr, ort: p.ort, dir };
@@ -530,10 +533,10 @@ async function oeffne(name){
 
 /** Alles frisch lesen: Einstellungen, Zeiten aller Kollegen, LabelKit, Fotos, Berichte, Projektdatei. */
 async function ladeAlles(){
+  try{ await sichereMeine(); }catch(e){ return; }   // bei Speicherfehlern Eingaben und Oberfläche erhalten
   const token = ++A.laden, aktuell = () => token === A.laden;
   $('inhalt').innerHTML = '<div class="leer"><p>Wird gelesen …</p></div>';
   const fehler = [], quellen = [];   // quellen: Lesefehler, die in der Abrechnung als Hinweis stehen müssen (fehlende Zeiten, Proben, Seiten)
-  await sichereMeine();   // noch nicht geschriebene Eingaben zuerst sichern – sonst überschreibt das Neueinlesen sie
   try{ const e = await liesJson(A.archiv, EINST_DATEI); A.einst = AW.einstellungen(e && e.daten); A.einstAusDatei = !!e; A.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; A.einstStand = e && e.daten && e.daten.geaendert || null; A.einstGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); A.einst = AW.einstellungen(null); A.einstAusDatei = false; A.einstGesperrt = true; }
   const abr = await unter(A.proj.dir, ORDNER.abr, false);
@@ -606,24 +609,34 @@ async function ladeAlles(){
 }
 
 /* ---------- Speichern ---------- */
-let speichernTimer = null;
+let speichernTimer = null, meineAenderung = 0, meineGespeichert = 0;
 function meineGeaendert(){
+  meineAenderung++;
   clearTimeout(speichernTimer); status('… wird gespeichert');
-  speichernTimer = setTimeout(() => { speichernTimer = null; A.schreib = A.schreib.then(speichereMeine).catch(e => status('Nicht gespeichert: ' + e.message, 'err')); }, 500);
+  speichernTimer = setTimeout(() => { speichernTimer = null; reiheMeineEin(); }, 500);
 }
-/** Wartende Eingaben sofort schreiben (vor Kürzelwechsel, Projektwechsel und Neu einlesen). */
+function reiheMeineEin(){
+  // Nur für den nächsten Versuch erholen; der aktuelle Aufrufer muss den Fehler erhalten.
+  A.schreib = A.schreib.catch(() => {}).then(speichereMeine);
+  A.schreib.catch(e => status('Nicht gespeichert: ' + e.message + ' Bitte erneut versuchen.', 'err'));
+}
+/** Wartende oder fehlgeschlagene Eingaben vor einem Zustandswechsel sichern. */
 async function sichereMeine(){
-  if (speichernTimer){ clearTimeout(speichernTimer); speichernTimer = null; A.schreib = A.schreib.then(speichereMeine).catch(e => status('Nicht gespeichert: ' + e.message, 'err')); }
+  if (speichernTimer || meineAenderung !== meineGespeichert){
+    clearTimeout(speichernTimer); speichernTimer = null; reiheMeineEin();
+  }
   await A.schreib;
 }
 async function speichereMeine(){
   if (!A.proj || !AW.kuerzelOk(A.kz)) return;
-  if (A.meineDefekt){ status(`„Aufwand_${A.kz.toUpperCase()}.json“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
+  if (A.meineDefekt) throw new Error(`„Aufwand_${A.kz.toUpperCase()}.json“ ist nicht lesbar und wird nicht überschrieben.`);
+  const stand = meineAenderung;
   const abr = await unter(A.proj.dir, ORDNER.abr, true), name = `Aufwand_${A.kz.toUpperCase()}.json`;
   await schreibJson(abr, name, { format: 'aufwandkit-zeiten', version: 1, hinweis: 'Zeiten, km und Spesen einer Person für dieses Projekt (BelegKit). Jede Person schreibt nur ihre eigene Datei.',
     projekt: A.proj.nr, kuerzel: A.kz.toUpperCase(), geaendert: new Date().toISOString(), geaendertMit: APP_NAME + ' ' + APP_VERSION, eintraege: A.meine });
   const f = A.alle.find(x => x.kuerzel === A.kz.toUpperCase());
   if (f) f.eintraege = A.meine.map(x => Object.assign({}, x)); else A.alle.push({ kuerzel: A.kz.toUpperCase(), datei: name, eintraege: A.meine.map(x => Object.assign({}, x)) });
+  meineGespeichert = stand;
   status('✓ gespeichert in „Abrechnung/' + name + '“', 'ok');
   if (A.tab === 'zeiten') zeichneKollegen();
 }
@@ -770,7 +783,7 @@ function zeichneKollegen(){
   box.innerHTML = `<h3>Alle Kollegen in diesem Projekt</h3>${zeilen.length ? `<table class="liste"><thead><tr><th>Kürzel</th><th class="r">Std. Ortstermin</th><th class="r">Std. Auswertung</th><th class="r">km</th><th class="r">Spesen</th><th class="r">Übern.</th><th></th></tr></thead><tbody>${zeilen.join('')}</tbody></table>` : '<p class="m">Noch keine Zeiten erfasst.</p>'}`;
 }
 async function setzeKuerzel(v){
-  await sichereMeine();   // Eingaben des bisherigen Kürzels gehören in dessen Datei
+  try{ await sichereMeine(); }catch(e){ $('kz').value = A.kz; return; }   // Eingaben des bisherigen Kürzels gehören in dessen Datei
   A.kz = v.trim().toUpperCase(); try{ localStorage.setItem('aufwandkit-kuerzel', A.kz); localStorage.setItem(KZ_GEMEINSAM, A.kz); }catch(e){}
   $('kz').value = A.kz;
   const f = A.alle.find(x => x.kuerzel === A.kz); A.meine = f ? f.eintraege.map(x => Object.assign({}, x)) : []; A.meineDefekt = !!(f && f.defekt);
@@ -926,12 +939,12 @@ function info(){
 $('ver').onclick = info;
 $('hilfe').onclick = info;
 $('bZentrale').onclick = () => { location.href = '../Projektzentrale/'; };
-$('bWechsel').onclick = async () => { if (!A.archiv) return; await sichereMeine(); A.proj = null; try{ history.replaceState(null, '', location.pathname); }catch(e){} document.title = APP_NAME; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
+$('bWechsel').onclick = async () => { if (!A.archiv) return; try{ await sichereMeine(); }catch(e){ return; } A.proj = null; try{ history.replaceState(null, '', location.pathname); }catch(e){} document.title = APP_NAME; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
 $('bNeu').onclick = () => { if (A.proj) ladeAlles(); };
 
 $('kz').value = A.kz;
 $('kz').onchange = () => { const v = $('kz').value.trim(); if (!AW.kuerzelOk(v)){ status('Kürzel: 1–6 Buchstaben', 'err'); $('kz').value = A.kz; return; } setzeKuerzel(v); };
-window.addEventListener('beforeunload', e => { if (speichernTimer || $('status').textContent.startsWith('…')){ e.preventDefault(); e.returnValue = ''; } });
+window.addEventListener('beforeunload', e => { if (meineAenderung !== meineGespeichert || speichernTimer || $('status').textContent.startsWith('…')){ e.preventDefault(); e.returnValue = ''; } });
 if (location.protocol === 'https:' && 'serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(() => {});
 start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
 </script>
