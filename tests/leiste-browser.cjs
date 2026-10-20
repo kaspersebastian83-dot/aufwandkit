@@ -10,7 +10,7 @@ const playwright = require('playwright');
 const APP = 'beleg';                                  // label | fotos | plan | beleg
 const name = process.argv[2] || 'chromium';
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'));
-const A = '26.0142 Teststadt', B = '26.0150 Köln';
+const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
 
 (async () => {
   const server = http.createServer((req, res) => { res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(html); });
@@ -57,7 +57,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln';
   const weiterOhne = page.locator('#mosaikLeiste .ml-weiter');
   await weiterOhne.waitFor();
   assert.match(await weiterOhne.textContent(), /Weiter mit 26\.0142 Teststadt/);
-  assert.equal(await weiterOhne.getAttribute('href'), '?projekt=' + encodeURIComponent(A));
+  assert.equal(await weiterOhne.getAttribute('href'), '#projekt=' + encodeURIComponent(A));
 
   // 2) mit Projekt: Name, Objekt, vier Schritte mit Haken, nächster Schritt
   await page.goto(url + '?projekt=' + encodeURIComponent(A));
@@ -73,10 +73,15 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln';
   assert.equal(await leiste.locator('.ml-step.hier').getAttribute('aria-current'), 'page');
   const naechster = APP === 'plan' ? /Weiter: BelegKit/ : /Weiter: PlanKit/;
   assert.match(await leiste.locator('.ml-weiter').textContent(), naechster);
-  assert.match(await leiste.locator('.ml-weiter').getAttribute('href'), /\?projekt=26\.0142%20Teststadt$/);
+  assert.match(await leiste.locator('.ml-weiter').getAttribute('href'), /#projekt=26\.0142%20Teststadt$/);
   assert.equal(await leiste.locator('.ml-weiter').getAttribute('target'), APP === 'plan' ? 'aufwandkit' : 'plankit');
   // Schritte der anderen Apps sind Links mit demselben Projekt, die eigene App ist keiner
   assert.equal(await leiste.locator('a.ml-step').count(), 3);
+  for (const a of await leiste.locator('a.ml-step, a.ml-weiter').all()){
+    const link = new URL(await a.getAttribute('href'), page.url());
+    assert.equal(link.searchParams.has('projekt'), false, 'Kein Projekt im HTTP-Query');
+    assert.equal(new URLSearchParams(link.hash.slice(1)).get('projekt'), A);
+  }
   assert.equal(await leiste.locator('input, textarea').count(), 0);
 
   // 3) Projektwechsel: zuletzt benutzte Projekte, Wechsel bleibt in dieser App
@@ -86,18 +91,39 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln';
   // Aktualisierung im Hintergrund (alle 20 s, beim Fensterwechsel) schließt das offene Menü nicht
   await page.evaluate(() => window.MosaikLeiste.aktualisieren()); await page.waitForTimeout(150);
   assert.equal(await pop.count(), 1, 'Menü bleibt bei Aktualisierung offen');
-  assert.match(await pop.locator('a', {hasText: B}).getAttribute('href'), /\?projekt=26\.0150%20K%C3%B6ln$/);
+  assert.equal(await pop.locator('a', {hasText: B}).getAttribute('href'), '#projekt=' + encodeURIComponent(B));
   await page.keyboard.press('Escape');
   assert.equal(await pop.count(), 0);
-  await Promise.all([page.waitForURL(/projekt=26\.0150/), (async () => { await leiste.locator('.ml-proj').click(); await pop.locator('a', {hasText: B}).click(); })()]);
+  // Abgebrochene beforeunload-Warnung darf weder URL noch Projekt ändern.
+  const vorher = page.url();
+  await page.evaluate(() => { window.__wechselSperre = e => { e.preventDefault(); e.returnValue = ''; }; window.addEventListener('beforeunload', window.__wechselSperre); });
+  page.removeAllListeners('dialog');
+  page.on('dialog', d => d.dismiss());
+  await leiste.locator('.ml-proj').click();
+  await Promise.all([page.waitForEvent('dialog'), pop.locator('a', {hasText: B}).click()]);
+  assert.equal(page.url(), vorher, 'Abbruch erhält alte Adresse');
+  assert.ok((await leiste.locator('.ml-proj b').textContent()).includes(A));
+  await page.evaluate(() => window.removeEventListener('beforeunload', window.__wechselSperre));
+  page.removeAllListeners('dialog'); page.on('dialog', d => d.accept());
+  await page.keyboard.press('Escape');
+  const projektAnfragen = [];
+  page.on('request', req => { if (req.isNavigationRequest()) projektAnfragen.push(req.url()); });
+  await Promise.all([page.waitForEvent('load'), page.waitForURL(/projekt=26\.0150/), (async () => { await leiste.locator('.ml-proj').click(); await pop.locator('a', {hasText: B}).click(); })()]);
   await page.waitForSelector('#mosaikLeiste .ml-proj b');
   assert.match(await leiste.locator('.ml-proj b').textContent(), /26\.0150 Köln/);
   await page.waitForFunction(() => document.querySelectorAll('#mosaikLeiste .ml-step.done').length === 0);   // Projekt B ist leer: keine Haken
   assert.equal(await leiste.locator('.ml-obj').count(), 0);
+  assert.equal(new URL(page.url()).searchParams.has('projekt'), false);
+  assert.equal(new URLSearchParams(new URL(page.url()).hash.slice(1)).get('projekt'), B, 'Sonderzeichen nach echtem App-Neustart erhalten');
 
   // 4) zuletzt geöffnet wird mitgeschrieben (B steht jetzt vorn)
   const zuletzt = await page.evaluate(() => new Promise(res => { const q = indexedDB.open('mosaik-suite', 1); q.onsuccess = () => { const g = q.result.transaction('kv').objectStore('kv').get('zuletzt'); g.onsuccess = () => res(g.result); }; }));
   assert.deepEqual(zuletzt, [B, A]);
+  assert.ok(projektAnfragen.length > 0, 'Projektwechsel lädt wirklich ein neues Dokument');
+  for (const request of projektAnfragen){
+    assert.equal(new URL(request).searchParams.has('projekt'), false);
+    assert.equal(new URL(request).hash, '', 'Projektfragment ist kein Teil der HTTP-Anfrage');
+  }
 
   assert.deepEqual(errors, []);
   await browser.close(); server.close();
