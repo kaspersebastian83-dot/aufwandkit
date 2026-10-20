@@ -1014,24 +1014,31 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     var el = document.createElement(tag);
     for (var k in (attrs || {})){ if (k === 'text') el.textContent = attrs[k]; else el.setAttribute(k, attrs[k]); }
     for (var i = 2; i < arguments.length; i++) if (arguments[i]) el.appendChild(arguments[i]);
-    // Eigene Projektlinks brauchen einen Neustart: ein reiner Fragmentwechsel lädt die App nicht.
-    if (tag === 'a' && attrs && typeof attrs.href === 'string' && attrs.href.startsWith('#projekt=')){
+    if (tag === 'a' && attrs && typeof attrs.href === 'string' && attrs.href.includes('#projekt=')){
       el.addEventListener('click', function(ev){
         if (ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
         ev.preventDefault();
-        const ziel = new URL(el.href);
-        // Anderer Dokumentpfad erzwingt echtes Laden; beforeunload kann den Wechsel noch abbrechen.
-        if (ziel.protocol === 'file:'){
-          // Lokale HTML-Datei: nur einen leeren Query-Teil wechseln, niemals den Projektnamen.
-          ziel.search = ziel.search.endsWith('&') ? ziel.search.slice(0, -1) : ziel.search + '&';
-        } else {
-          ziel.pathname = ziel.pathname.endsWith('/index.html') ? ziel.pathname.slice(0, -10) : ziel.pathname + (ziel.pathname.endsWith('/') ? 'index.html' : '/index.html');
-        }
-        window.location.assign(ziel.href);
+        projektNavigation(el.href, el.target);
       });
     }
     return el;
   };
+  function projektNavigation(href, target){
+    const ziel = new URL(href, location.href);
+    const fenster = target ? window.open('', target) : window;
+    if (!fenster) return;
+    let bisher; try{ bisher = new URL(fenster.location.href); }catch(e){}
+    // Gleicher Einstieg mit anderem Fragment wäre sonst nur ein Wechsel innerhalb des Dokuments.
+    if (bisher && ziel.origin === bisher.origin && ziel.pathname === bisher.pathname && ziel.search === bisher.search){
+      if (ziel.protocol === 'file:'){
+        ziel.search = ziel.search.endsWith('&') ? ziel.search.slice(0, -1) : ziel.search + '&';
+      } else {
+        ziel.pathname = ziel.pathname.endsWith('/index.html') ? ziel.pathname.slice(0, -10) : ziel.pathname + (ziel.pathname.endsWith('/') ? 'index.html' : '/index.html');
+      }
+    }
+    fenster.location.assign(ziel.href);
+    if (target) fenster.focus();
+  }
   function idb(){
     return new Promise(function(res){
       try{

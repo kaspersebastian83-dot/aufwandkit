@@ -83,6 +83,22 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
     assert.equal(new URLSearchParams(link.hash.slice(1)).get('projekt'), A);
   }
   assert.equal(await leiste.locator('input, textarea').count(), 0);
+  // Bereits geöffnetes benanntes App-Fenster muss bei erneutem Absprung wirklich neu laden.
+  const quer = leiste.locator('a.ml-step').first(), querUrl = new URL(await quer.getAttribute('href'), page.url());
+  const routeMatch = u => u.pathname.startsWith(querUrl.pathname);
+  const querAnfragen = [];
+  await ctx.route(routeMatch, route => {
+    querAnfragen.push(route.request().url());
+    return route.fulfill({contentType:'text/html', body:'<!doctype html><body><script>document.body.dataset.projekt=new URLSearchParams(location.hash.slice(1)).get("projekt");</script></body>'});
+  });
+  const [anderesFenster] = await Promise.all([page.waitForEvent('popup'), quer.click()]);
+  await anderesFenster.waitForFunction(name => document.body.dataset.projekt === name, A);
+  await Promise.all([anderesFenster.waitForEvent('load'), quer.click()]);
+  assert.equal(ctx.pages().length, 2, 'Benanntes Fenster wird wiederverwendet');
+  assert.equal(new URLSearchParams(new URL(anderesFenster.url()).hash.slice(1)).get('projekt'), A);
+  assert.ok(querAnfragen.length >= 2, 'Zweiter Absprung lädt ein neues Dokument');
+  assert.ok(querAnfragen.every(u => !new URL(u).searchParams.has('projekt') && !new URL(u).hash));
+  await anderesFenster.close(); await ctx.unroute(routeMatch);
 
   // 3) Projektwechsel: zuletzt benutzte Projekte, Wechsel bleibt in dieser App
   await leiste.locator('.ml-proj').click();
