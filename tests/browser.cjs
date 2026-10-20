@@ -252,9 +252,43 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.locator('button[data-tab="zeiten"]').click();
   await z(0, 'notiz').fill('Fahrgemeinschaft geklärt');
   await page.locator('#bNeu').click();
+  await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('✓ gespeichert in'));
   await page.locator('#zRows').waitFor();
   assert.equal(await z(0, 'notiz').inputValue(), 'Fahrgemeinschaft geklärt', 'Eingabe bleibt nach „Neu einlesen“ sichtbar');
   assert.equal(JSON.parse(await lies('§/Abrechnung/Aufwand_AB.json')).eintraege[0].notiz, 'Fahrgemeinschaft geklärt', 'Eingabe vor dem Neueinlesen gespeichert');
+  // Regression A: Schreibfehler blockiert Kürzel-/Projektwechsel und Neueinlesen; danach erneut speichern.
+  await page.evaluate(() => {
+    window.__createWritable = FileSystemFileHandle.prototype.createWritable;
+    FileSystemFileHandle.prototype.createWritable = function(...args){
+      if (this.name === 'Aufwand_AB.json') throw new DOMException('Kein Schreibzugriff', 'NotAllowedError');
+      return window.__createWritable.apply(this, args);
+    };
+  });
+  await z(0, 'notiz').fill('Noch nicht gespeichert');
+  await page.locator('#kz').fill('SK'); await page.locator('#kz').dispatchEvent('change');
+  await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Nicht gespeichert:'));
+  assert.equal((await kz()).feld, 'AB', 'Kürzelfeld zurückgesetzt');
+  assert.equal((await kz()).gemeinsam, 'AB', 'gemeinsames Kürzel bleibt erhalten');
+  assert.equal((await kz()).eigen, 'AB', 'eigenes Kürzel bleibt erhalten');
+  assert.equal(await z(0, 'notiz').inputValue(), 'Noch nicht gespeichert');
+  assert.match(await page.locator('#seite h2').first().textContent(), /Meine Zeiten · AB/);
+  assert.equal(JSON.parse(await lies('§/Abrechnung/Aufwand_AB.json')).eintraege[0].notiz, 'Fahrgemeinschaft geklärt', 'Datei unverändert');
+  // Auch ein bereits fehlgeschlagener automatischer Speicherversuch muss den Wechsel verhindern.
+  await z(0, 'notiz').fill('Weiterhin ungespeichert');
+  await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('Nicht gespeichert:'));
+  for (const id of ['bNeu', 'bWechsel']){
+    await page.locator('#' + id).click();
+    await page.evaluate(() => A.schreib.catch(() => {}));
+    assert.equal(await z(0, 'notiz').inputValue(), 'Weiterhin ungespeichert', id + ': Eingabe erhalten');
+    assert.match(page.url(), /projekt=26\.0389/);
+  }
+  await page.evaluate(() => { FileSystemFileHandle.prototype.createWritable = window.__createWritable; delete window.__createWritable; });
+  await page.locator('#bNeu').click();
+  await page.waitForFunction(() => document.getElementById('status').textContent.startsWith('✓ gespeichert in'));
+  await page.locator('#zRows').waitFor();
+  assert.equal(await z(0, 'notiz').inputValue(), 'Weiterhin ungespeichert', 'Wiederholung erfolgreich');
+  assert.equal(JSON.parse(await lies('§/Abrechnung/Aufwand_AB.json')).eintraege[0].notiz, 'Weiterhin ungespeichert');
+
   // Eingabe und sofort Kürzel wechseln: die Eingabe gehört in die Datei des bisherigen Kürzels
   await z(0, 'stunden').fill('4,5');
   await page.locator('#kz').fill('SK'); await page.locator('#kz').dispatchEvent('change');
@@ -294,6 +328,81 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
     const teile = pfad.split('/'); for (const t of teile.slice(0, -1)) d = await d.getDirectoryHandle(t === '§' ? PROJ : t);
     await d.removeEntry(teile[teile.length - 1], { recursive: true });
   }, { PROJ, pfad });
+  // Wiederherstellung: eigene Datei zeitweise unlesbar, neue Eingaben sicher mit Originalen vereinen.
+  await page.locator('button[data-tab="zeiten"]').click();
+  const zeitPfad = '§/Abrechnung/Aufwand_AB.json', zeitOriginal = await lies(zeitPfad);
+  const original = JSON.parse(zeitOriginal);
+  assert.equal(original.eintraege.length, 1);
+  await page.evaluate(() => {
+    window.__zeitGetFile = FileSystemFileHandle.prototype.getFile;
+    FileSystemFileHandle.prototype.getFile = function(...args){
+      if (this.name === 'Aufwand_AB.json') throw new DOMException('Vorübergehend nicht lesbar', 'NotReadableError');
+      return window.__zeitGetFile.apply(this, args);
+    };
+  });
+  await page.evaluate(() => ladeAlles());
+  assert.equal(await page.locator('#zRows tr').count(), 0, 'Original konnte nicht geladen werden');
+  await page.locator('#zNeu').click();
+  await z(0, 'stunden').fill('2'); await z(0, 'notiz').fill('Während des Lesefehlers erfasst');
+  const speichernVersuch = () => page.evaluate(() => sichereMeine().then(() => null, e => e.message));
+  assert.match(await speichernVersuch(), /nicht lesbar/);
+  assert.match(await page.locator('#status').textContent(), /Nicht gespeichert:/);
+  await page.evaluate(() => { FileSystemFileHandle.prototype.getFile = window.__zeitGetFile; delete window.__zeitGetFile; });
+  assert.equal(await lies(zeitPfad), zeitOriginal, 'bei fortbestehendem Lesefehler Original bytegenau erhalten');
+  const neuerEintrag = await page.evaluate(() => ({ ...A.meine[0] }));
+  assert.equal(await z(0, 'notiz').inputValue(), neuerEintrag.notiz);
+  // Eine verschwundene Datei und nicht eindeutig zuordenbare Daten bleiben gesperrt.
+  await loesche(zeitPfad);
+  assert.match(await speichernVersuch(), /fehlt nach dem Lesefehler/);
+  await assert.rejects(() => lies(zeitPfad), /NotFoundError/, 'fehlende Datei nicht neu angelegt');
+  for (const eintraege of [{}, [original.eintraege[0], original.eintraege[0]], [{ ...original.eintraege[0], id: '' }], [{ ...neuerEintrag, stunden: '99' }]]){
+    const unklar = JSON.stringify({ ...original, eintraege });
+    await schreibeIn(zeitPfad, unklar);
+    assert.match(await speichernVersuch(), /Struktur|IDs|Widersprüchliche/);
+    assert.equal(await lies(zeitPfad), unklar, 'unklare Daten nicht überschrieben');
+    assert.equal(await z(0, 'notiz').inputValue(), neuerEintrag.notiz, 'neue Eingabe erhalten');
+  }
+  // Externe Reparatur, Wiederholung über denselben Speicherablauf.
+  await schreibeIn(zeitPfad, zeitOriginal);
+  assert.equal(await speichernVersuch(), null);
+  const gerettet = JSON.parse(await lies(zeitPfad));
+  assert.equal(gerettet.eintraege.length, 2);
+  assert.equal(new Set(gerettet.eintraege.map(e => e.id)).size, 2, 'keine doppelten IDs');
+  assert.deepEqual(gerettet.eintraege.find(e => e.id === original.eintraege[0].id), original.eintraege[0], 'Originaleintrag vollständig erhalten');
+  assert.deepEqual(gerettet.eintraege.find(e => e.id === neuerEintrag.id), neuerEintrag, 'neuer Eintrag vollständig erhalten');
+  assert.equal(await page.locator('#zRows tr').count(), 2, 'beide Einträge sichtbar');
+  await page.evaluate(() => setzeKuerzel('SK'));
+  assert.equal((await kz()).feld, 'SK', 'Kürzelwechsel nach Wiederherstellung möglich');
+  await page.evaluate(() => setzeKuerzel('AB'));
+  await page.evaluate(() => ladeAlles());
+  assert.equal(await page.locator('#zRows tr').count(), 2, 'Neueinlesen nach Wiederherstellung möglich');
+  assert.deepEqual(JSON.parse(await lies(zeitPfad)).eintraege, gerettet.eintraege, 'auch nach Wechsel keine Duplikate');
+  await schreibeIn(zeitPfad, zeitOriginal);
+  await page.evaluate(() => ladeAlles());
+
+  // Regression B: Vorhandene Abrechnung bei Lesefehler niemals durch einen neuen Bestand ersetzen.
+  const abrechnungOriginal = await lies('§/Abrechnung/_Abrechnung.json');
+  await page.locator('button[data-tab="bericht"]').click();
+  await page.evaluate(() => {
+    window.__getFile = FileSystemFileHandle.prototype.getFile;
+    FileSystemFileHandle.prototype.getFile = function(...args){
+      if (this.name === '_Abrechnung.json') throw new DOMException('Kein Lesezugriff', 'NotAllowedError');
+      return window.__getFile.apply(this, args);
+    };
+  });
+  await page.evaluate(() => document.getElementById('bRows').onchange({ target: document.querySelector('[data-ab="0"]') }));
+  await page.waitForFunction(() => /Nicht gespeichert:.*_Abrechnung\.json.*nicht lesbar/.test(document.getElementById('status').textContent));
+  await page.evaluate(() => { FileSystemFileHandle.prototype.getFile = window.__getFile; delete window.__getFile; });
+  assert.equal(await lies('§/Abrechnung/_Abrechnung.json'), abrechnungOriginal, 'Originaldatei bytegenau erhalten');
+  await page.evaluate(() => document.getElementById('bRows').onchange({ target: document.querySelector('[data-ab="0"]') }));
+  await page.waitForFunction(() => document.getElementById('status').textContent === '✓ gespeichert');
+  // Nur tatsächlich fehlende Dateien werden neu angelegt.
+  await loesche('§/Abrechnung/_Abrechnung.json');
+  await page.evaluate(() => document.getElementById('bRows').onchange({ target: document.querySelector('[data-ab="0"]') }));
+  await page.waitForFunction(() => document.getElementById('status').textContent === '✓ gespeichert');
+  assert.equal(JSON.parse(await lies('§/Abrechnung/_Abrechnung.json')).format, 'aufwandkit-projekt');
+  await schreibeIn('§/Abrechnung/_Abrechnung.json', abrechnungOriginal);
+
   // Ein Kollege speichert inzwischen einen anderen Preis: Zuordnung ändern darf ihn nicht zurückschreiben
   { const e = JSON.parse(await lies('_AufwandKit-Einstellungen.json')); e.positionen.find(x => x.key === 'sv1').preis = '150,00'; e.geaendert = '2030-01-01T00:00:00.000Z'; e.geaendertVon = 'XY';
     await schreibeIn('_AufwandKit-Einstellungen.json', JSON.stringify(e)); }
