@@ -11,7 +11,7 @@ const playwright = require('playwright');
 
 const name = process.argv[2] || 'chromium';
 const root = path.join(__dirname, '..');
-const PROJ = '26.0389 Riedelsbach';
+const PROJ = '26.0389 Riedelsbach Köln & Süd + 50% #Hof';
 const bild = async (page, n) => { if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, n + '.png'), fullPage: true }); };   // optional: Bildschirmfotos zur Sichtprüfung
 
 /** Kleine .docx-Attrappe wie aus Word: app.xml deflate-komprimiert (Word meldet 1 Seite bei 2412 Wörtern – veraltet). */
@@ -103,12 +103,27 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   // Ohne Projekt: Auswahl, neueste zuerst
   await page.goto(base);
   await page.locator('.pz').first().waitFor();
-  assert.deepEqual(await page.locator('.pz').allTextContents(), ['26.0389 Riedelsbach', '26.0101 Anderswo']);
+  assert.deepEqual(await page.locator('.pz').allTextContents(), [PROJ, '26.0101 Anderswo']);
   await page.locator('#pSuche').fill('riedel');
   assert.equal(await page.locator('.pz').count(), 1);
   await page.locator('.pz').click();
   await page.locator('nav.tabs').waitFor();
-  assert.match(page.url(), /\?projekt=26\.0389%20Riedelsbach$/);
+  assert.equal(new URL(page.url()).searchParams.has('projekt'), false, 'Projektwahl erzeugt keinen Query-Link');
+  assert.equal(new URLSearchParams(new URL(page.url()).hash.slice(1)).get('projekt'), PROJ);
+  await page.goto(base + '?projekt=' + encodeURIComponent(PROJ));
+  await page.locator('nav.tabs').waitFor();
+  assert.equal(new URL(page.url()).searchParams.has('projekt'), false, 'alter Query-Link bereinigt');
+  assert.equal(await page.evaluate(() => A.proj.name), PROJ);
+  await page.goto(base + '?ansicht=liste#zeiten&projekt=' + encodeURIComponent(PROJ));
+  await page.locator('nav.tabs').waitFor();
+  assert.equal(await page.evaluate(() => A.proj.name), PROJ, 'Fragment öffnet exakten Sonderzeichen-Ordner');
+  await page.goto(base + '?projekt=falsch&ansicht=liste#zeiten&projekt=' + encodeURIComponent(PROJ));
+  await page.locator('nav.tabs').waitFor();
+  const projektUrl = new URL(page.url());
+  assert.equal(projektUrl.searchParams.has('projekt'), false, 'Fragment gewinnt vor Query');
+  assert.equal(projektUrl.searchParams.get('ansicht'), 'liste');assert.ok(projektUrl.hash.startsWith('#zeiten&'));
+  assert.equal(await page.evaluate(() => A.proj.name), PROJ);
+
 
   // Kürzel, zwei Einträge
   await page.locator('button[data-tab="zeiten"]').click();
@@ -223,7 +238,9 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.deepEqual(stand.quellen.map(q => q.datei).sort(), ['Abrechnung/Aufwand_SK.json', 'Abrechnung/_Abrechnung.json', '_Projekt.json', 'Fotos/_Bildumbenenner.json', 'Laboraufträge/26.0389_16.09.2026_Daten.json', 'Mitteilungen/1__Mitteilung.docx', 'Mitteilungen/1__Mitteilung.pdf', '_AufwandKit-Einstellungen.json (Archivordner)'].sort());
   assert.ok(stand.quellen.every(q => /^[0-9a-f]{64}$/.test(q.sha256)));
   assert.deepEqual(stand.projektdaten, { objekt: 'EFH, Musterweg 7, 52525 Heinsberg', auftraggeber: 'Beispiel Versicherung AG', schadennummer: 'S-2026-4711' });
-  assert.match(await lies(`§/Abrechnung/26-0389_Aufwand_${heute}.csv`), /^\ufeff?Projekt;26\.0389 Riedelsbach\r\nObjekt;EFH, Musterweg 7, 52525 Heinsberg\r\nAuftraggeber;Beispiel Versicherung AG\r\nSchaden-Nr\. des Auftraggebers;S-2026-4711\r\nStand;/);
+  const standCsv = (await lies(`§/Abrechnung/26-0389_Aufwand_${heute}.csv`)).replace(/^\ufeff/, '');
+  assert.equal(standCsv.split('\r\n')[0], 'Projekt;' + PROJ);
+  assert.match(standCsv, /\r\nObjekt;EFH, Musterweg 7, 52525 Heinsberg\r\nAuftraggeber;Beispiel Versicherung AG\r\nSchaden-Nr\. des Auftraggebers;S-2026-4711\r\nStand;/);
   await page.locator('#aStand').click();
   await page.waitForFunction(h => document.getElementById('status').textContent.includes('Aufwand_' + h + '_2.json'), heute);
 
