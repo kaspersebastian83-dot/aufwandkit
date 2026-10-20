@@ -629,14 +629,37 @@ async function sichereMeine(){
 }
 async function speichereMeine(){
   if (!A.proj || !AW.kuerzelOk(A.kz)) return;
-  if (A.meineDefekt) throw new Error(`„Aufwand_${A.kz.toUpperCase()}.json“ ist nicht lesbar und wird nicht überschrieben.`);
+  const wiederherstellen = A.meineDefekt;
+  const abr = await unter(A.proj.dir, ORDNER.abr, !wiederherstellen), name = `Aufwand_${A.kz.toUpperCase()}.json`;
+  if (wiederherstellen){
+    const cur = await liesJson(abr, name), o = cur && cur.daten;
+    if (!o) throw new Error(`„${name}“ fehlt nach dem Lesefehler. Bitte die Originaldatei wiederherstellen; die Eingaben bleiben erhalten.`);
+    if (o.format !== 'aufwandkit-zeiten' || o.version !== 1 || o.projekt !== A.proj.nr || o.kuerzel !== A.kz.toUpperCase() || !Array.isArray(o.eintraege))
+      throw new Error(`„${name}“ hat keine gültige Struktur für dieses Projekt und Kürzel und wird nicht überschrieben.`);
+    const zusammen = new Map();
+    for (const liste of [A.meine, o.eintraege]){
+      const ids = new Set();
+      for (const e of liste){
+        if (!e || typeof e !== 'object' || Array.isArray(e) || typeof e.id !== 'string' || !e.id.trim() || ids.has(e.id))
+          throw new Error(`„${name}“: Einträge sind nicht eindeutig anhand ihrer IDs zuzuordnen. Die Datei wird nicht überschrieben; die Eingaben bleiben erhalten.`);
+        ids.add(e.id);
+        const bisher = zusammen.get(e.id);
+        if (bisher && (Object.keys(bisher).length !== Object.keys(e).length || Object.keys(e).some(k => bisher[k] !== e[k])))
+          throw new Error(`„${name}“: Widersprüchliche Einträge mit derselben ID. Bitte den Konflikt klären; Datei und Eingaben bleiben erhalten.`);
+        if (!bisher) zusammen.set(e.id, e);
+      }
+    }
+    // Neue Eingaben behalten ihre Zeilenposition; Originaleinträge werden nur einmal ergänzt.
+    A.meine = [...zusammen.values()];
+  }
   const stand = meineAenderung;
-  const abr = await unter(A.proj.dir, ORDNER.abr, true), name = `Aufwand_${A.kz.toUpperCase()}.json`;
   await schreibJson(abr, name, { format: 'aufwandkit-zeiten', version: 1, hinweis: 'Zeiten, km und Spesen einer Person für dieses Projekt (BelegKit). Jede Person schreibt nur ihre eigene Datei.',
     projekt: A.proj.nr, kuerzel: A.kz.toUpperCase(), geaendert: new Date().toISOString(), geaendertMit: APP_NAME + ' ' + APP_VERSION, eintraege: A.meine });
   const f = A.alle.find(x => x.kuerzel === A.kz.toUpperCase());
   if (f) f.eintraege = A.meine.map(x => Object.assign({}, x)); else A.alle.push({ kuerzel: A.kz.toUpperCase(), datei: name, eintraege: A.meine.map(x => Object.assign({}, x)) });
+  A.meineDefekt = false; if (f) f.defekt = false;
   meineGespeichert = stand;
+  if (wiederherstellen && A.tab === 'zeiten') zeichneZeiten();
   status('✓ gespeichert in „Abrechnung/' + name + '“', 'ok');
   if (A.tab === 'zeiten') zeichneKollegen();
 }

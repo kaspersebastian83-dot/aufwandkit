@@ -328,6 +328,58 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
     const teile = pfad.split('/'); for (const t of teile.slice(0, -1)) d = await d.getDirectoryHandle(t === '§' ? PROJ : t);
     await d.removeEntry(teile[teile.length - 1], { recursive: true });
   }, { PROJ, pfad });
+  // Wiederherstellung: eigene Datei zeitweise unlesbar, neue Eingaben sicher mit Originalen vereinen.
+  await page.locator('button[data-tab="zeiten"]').click();
+  const zeitPfad = '§/Abrechnung/Aufwand_AB.json', zeitOriginal = await lies(zeitPfad);
+  const original = JSON.parse(zeitOriginal);
+  assert.equal(original.eintraege.length, 1);
+  await page.evaluate(() => {
+    window.__zeitGetFile = FileSystemFileHandle.prototype.getFile;
+    FileSystemFileHandle.prototype.getFile = function(...args){
+      if (this.name === 'Aufwand_AB.json') throw new DOMException('Vorübergehend nicht lesbar', 'NotReadableError');
+      return window.__zeitGetFile.apply(this, args);
+    };
+  });
+  await page.evaluate(() => ladeAlles());
+  assert.equal(await page.locator('#zRows tr').count(), 0, 'Original konnte nicht geladen werden');
+  await page.locator('#zNeu').click();
+  await z(0, 'stunden').fill('2'); await z(0, 'notiz').fill('Während des Lesefehlers erfasst');
+  const speichernVersuch = () => page.evaluate(() => sichereMeine().then(() => null, e => e.message));
+  assert.match(await speichernVersuch(), /nicht lesbar/);
+  assert.match(await page.locator('#status').textContent(), /Nicht gespeichert:/);
+  await page.evaluate(() => { FileSystemFileHandle.prototype.getFile = window.__zeitGetFile; delete window.__zeitGetFile; });
+  assert.equal(await lies(zeitPfad), zeitOriginal, 'bei fortbestehendem Lesefehler Original bytegenau erhalten');
+  const neuerEintrag = await page.evaluate(() => ({ ...A.meine[0] }));
+  assert.equal(await z(0, 'notiz').inputValue(), neuerEintrag.notiz);
+  // Eine verschwundene Datei und nicht eindeutig zuordenbare Daten bleiben gesperrt.
+  await loesche(zeitPfad);
+  assert.match(await speichernVersuch(), /fehlt nach dem Lesefehler/);
+  await assert.rejects(() => lies(zeitPfad), /NotFoundError/, 'fehlende Datei nicht neu angelegt');
+  for (const eintraege of [{}, [original.eintraege[0], original.eintraege[0]], [{ ...original.eintraege[0], id: '' }], [{ ...neuerEintrag, stunden: '99' }]]){
+    const unklar = JSON.stringify({ ...original, eintraege });
+    await schreibeIn(zeitPfad, unklar);
+    assert.match(await speichernVersuch(), /Struktur|IDs|Widersprüchliche/);
+    assert.equal(await lies(zeitPfad), unklar, 'unklare Daten nicht überschrieben');
+    assert.equal(await z(0, 'notiz').inputValue(), neuerEintrag.notiz, 'neue Eingabe erhalten');
+  }
+  // Externe Reparatur, Wiederholung über denselben Speicherablauf.
+  await schreibeIn(zeitPfad, zeitOriginal);
+  assert.equal(await speichernVersuch(), null);
+  const gerettet = JSON.parse(await lies(zeitPfad));
+  assert.equal(gerettet.eintraege.length, 2);
+  assert.equal(new Set(gerettet.eintraege.map(e => e.id)).size, 2, 'keine doppelten IDs');
+  assert.deepEqual(gerettet.eintraege.find(e => e.id === original.eintraege[0].id), original.eintraege[0], 'Originaleintrag vollständig erhalten');
+  assert.deepEqual(gerettet.eintraege.find(e => e.id === neuerEintrag.id), neuerEintrag, 'neuer Eintrag vollständig erhalten');
+  assert.equal(await page.locator('#zRows tr').count(), 2, 'beide Einträge sichtbar');
+  await page.evaluate(() => setzeKuerzel('SK'));
+  assert.equal((await kz()).feld, 'SK', 'Kürzelwechsel nach Wiederherstellung möglich');
+  await page.evaluate(() => setzeKuerzel('AB'));
+  await page.evaluate(() => ladeAlles());
+  assert.equal(await page.locator('#zRows tr').count(), 2, 'Neueinlesen nach Wiederherstellung möglich');
+  assert.deepEqual(JSON.parse(await lies(zeitPfad)).eintraege, gerettet.eintraege, 'auch nach Wechsel keine Duplikate');
+  await schreibeIn(zeitPfad, zeitOriginal);
+  await page.evaluate(() => ladeAlles());
+
   // Regression B: Vorhandene Abrechnung bei Lesefehler niemals durch einen neuen Bestand ersetzen.
   const abrechnungOriginal = await lies('§/Abrechnung/_Abrechnung.json');
   await page.locator('button[data-tab="bericht"]').click();
