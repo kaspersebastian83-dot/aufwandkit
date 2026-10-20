@@ -146,7 +146,7 @@ table.abr tr.summe td,table.abr tfoot td{font-weight:600}
 <header>
   <div class="appbar">
     <div class="brand"><span class="hex">⬡</span> BelegKit <small>Zeiten · Proben · Abrechnung</small></div>
-    <button id="ver" class="hbadge" title="Version und Änderungen">v</button>
+    <button id="ver" class="hbadge" title="Version und Änderungen">v1.4.1</button>
     <button id="hilfe" class="hbadge help" title="Kurzanleitung"><b>?</b> Kurzanleitung</button>
     <span class="spacer"></span>
     <span class="folder" id="projekt"></span>
@@ -411,9 +411,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.4.0';
-const APP_DATE = '2026-10-18';
+const APP_VERSION = '1.4.1';
+const APP_DATE = '2026-10-20';
 const CHANGELOG = [
+  ['1.4.1', '20.10.2026', 'Projektzentrale und Spektron-Leiste übergeben Projekte jetzt über #projekt im Fragment. Sonderzeichen bleiben erhalten; alte ?projekt-Links funktionieren weiterhin und werden nach dem Laden bereinigt. Projektwechsel laden auch bereits geöffnete App-Fenster neu; eine Warnung vor ungesicherten Eingaben kann den Wechsel abbrechen.'],
   ['1.4.0', '19.10.2026', 'Neu: 🗺 neben den km jedes Ortstermins – öffnet Google Maps in einem eigenen Fenster mit Büro → Objekt → Büro (Objekt aus der Projektzentrale, Start änderbar, auch nur Hinfahrt). km ablesen und übernehmen; der Link zur Route wird am Eintrag gespeichert (auch ein in Google Maps angepasster, geteilter Link), damit die km später nachvollziehbar sind. BelegKit selbst verbindet sich weiterhin mit keinem fremden Server. Außerdem behoben: Die Leiste oben zeigt jetzt das Objekt aus der Projektzentrale neben dem Projekt.'],
   ['1.3.3', '18.10.2026', 'Die Leiste oben zeigt links den Namen der App-Suite „Spektron“ (die Büro-Apps Projektzentrale, LabelKit, FotoKit, PlanKit, BelegKit und SpesenKit). Sonst unverändert.'],
   ['1.3.2', '18.10.2026', 'Prüflauf Rechnung: Beträge werden kaufmännisch auf Cent gerundet (bisher z. B. 0,3 km × 0,75 € = 0,22 statt 0,23 €). PDF-Berichte, die nachträglich gespeichert wurden (Acrobat, Kommentare, Signatur), werden nicht mehr doppelt gezählt. 3.002 zeigt keinen Betrag mehr, solange ein Satz fehlt (bisher kosteten die Seiten still 0 €, wenn nur der Foto-Satz eingetragen war) oder ein angekreuzter Bericht noch keine Seitenzahl hat; Seitenzahlen müssen ganze Zahlen sein. Neue Hinweise statt still fehlender Mengen: unlesbare Zeiten-Datei eines Kollegen, unlesbare LabelKit-, FotoKit-, Berichts- oder Einstellungsdatei, angekreuzter Bericht, der umbenannt wurde, Fotos in Unterordnern, Übernachtungsbetrag ohne Anzahl, PN-98-Protokolle ohne Laborproben. Mac-Begleitdateien („._…“) und FotoKit-Zwischendateien zählen nicht als Fotos. Bohrkerne aus dem LabelKit-Assistenten gelten nicht mehr fälschlich als „ohne Bezeichnung“. Die Zuordnung einer Probenart überschreibt keine Preise mehr, die ein Kollege inzwischen gespeichert hat; „Einstellungen speichern“ fragt nach, wenn jemand dazwischen gespeichert hat. Menge und Vorschaubetrag rechnen mit denselben zwei Nachkommastellen wie das Rechnungsprogramm.'],
