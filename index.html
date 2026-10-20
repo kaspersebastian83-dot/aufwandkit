@@ -8,6 +8,24 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
+<script>
+// Projektübergabe: Fragment hat Vorrang; alte Query-Links früh und ohne Anfrage bereinigen.
+const PROJEKT_URL = (() => {
+  const start = new URL(location.href);
+  const projekt = new URLSearchParams(start.hash.slice(1)).get('projekt') ?? start.searchParams.get('projekt');
+  function setzen(name){
+    const url = new URL(location.href);
+    // Fremde Fragmentbestandteile (auch reine Anker wie #fotos) unverändert erhalten.
+    const teile = url.hash.slice(1).split('&').filter(t => t && !new URLSearchParams(t).has('projekt'));
+    if (name !== null) teile.push('projekt=' + encodeURIComponent(name));
+    url.searchParams.delete('projekt');
+    url.hash = teile.join('&');
+    if (url.href !== location.href) try{ history.replaceState(history.state, '', url); }catch(e){}
+  }
+  if (start.searchParams.has('projekt')) setzen(projekt);
+  return { projekt, setzen };
+})();
+</script>
 <meta name="theme-color" content="#4179b2">
 <style>
 /* Aussehen wie Projektzentrale, LabelKit, FotoKit, PlanKit. IBM Plex: SIL Open Font License 1.1, © IBM Corp. – eingebettet. */
@@ -486,7 +504,7 @@ async function start(){
   if (!unterstuetzt){ $('support').style.display = 'block'; }
   let dir = null; try{ dir = await SUITE.get('archiv'); }catch(e){}
   A.archiv = dir || null;
-  const name = new URLSearchParams(location.search).get('projekt');
+  const name = PROJEKT_URL.projekt;
   if (!dir){ zeigeStart('kein'); return; }
   const st = await dir.queryPermission({ mode: 'readwrite' }).catch(() => 'denied');
   if (st !== 'granted'){ zeigeStart('erlauben', name); return; }
@@ -524,7 +542,7 @@ async function oeffne(name){
   let dir; try{ dir = await A.archiv.getDirectoryHandle(name); }catch(e){ meldung('err', `Projekt „${esc(name)}“ nicht gefunden in „${esc(A.archiv.name)}“.`); await zeigeAuswahl(); return; }
   const p = parseProj(name) || { nr: name, ort: '' };
   A.proj = { name, nr: p.nr, ort: p.ort, dir };
-  try{ history.replaceState(null, '', '?projekt=' + encodeURIComponent(name)); }catch(e){}
+  try{ PROJEKT_URL.setzen(name); }catch(e){}
   try{ window.MosaikLeiste && MosaikLeiste.aktualisieren(); }catch(e){}
   document.title = `${p.nr} · ${APP_NAME}`;
   $('projekt').textContent = `${A.archiv.name} › ${name}`;
@@ -962,7 +980,7 @@ function info(){
 $('ver').onclick = info;
 $('hilfe').onclick = info;
 $('bZentrale').onclick = () => { location.href = '../Projektzentrale/'; };
-$('bWechsel').onclick = async () => { if (!A.archiv) return; try{ await sichereMeine(); }catch(e){ return; } A.proj = null; try{ history.replaceState(null, '', location.pathname); }catch(e){} document.title = APP_NAME; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
+$('bWechsel').onclick = async () => { if (!A.archiv) return; try{ await sichereMeine(); }catch(e){ return; } A.proj = null; try{ PROJEKT_URL.setzen(null); }catch(e){} document.title = APP_NAME; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
 $('bNeu').onclick = () => { if (A.proj) ladeAlles(); };
 
 $('kz').value = A.kz;
@@ -1021,7 +1039,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       catch(e){ res(false); }
     }); });
   }
-  function urlName(){ try{ return new URLSearchParams(location.search).get('projekt') || ''; }catch(e){ return ''; } }
+  function urlName(){ try{ return new URLSearchParams(location.hash.slice(1)).get('projekt') ?? new URLSearchParams(location.search).get('projekt') ?? ''; }catch(e){ return ''; } }
   function href(app, projekt){ return (app[0] === ich ? '' : app[3]) + (projekt ? '?projekt=' + encodeURIComponent(projekt) : ''); }   // die eigene App relativ zur aktuellen Seite (auch ohne den Pfad /<App>/)
 
   /* Ordnerstand: nur Namen prüfen, Fotos nur über die eine Datei (der Ordner kann tausende Bilder enthalten) */
