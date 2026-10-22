@@ -24,6 +24,7 @@ jobs:
         with:
           node-version: 24
       - run: node tests/logik.cjs
+      - run: node tests/f4.cjs
 
   browser-tests:
     name: Browser tests (${{ matrix.browser }})
@@ -47,3 +48,5 @@ jobs:
         run: node tests/browser.cjs ${{ matrix.browser }}
       - name: Mosaik bar (project, steps, next step) in the real browser
         run: node tests/leiste-browser.cjs ${{ matrix.browser }}
+      - name: F4 independent sessions, deterministic final-check races and recovery UI
+        run: node tests/f4-browser.cjs ${{ matrix.browser }}
