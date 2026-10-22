@@ -90,6 +90,21 @@ async function tree(dir){const o={};for(const e of await fs.readdir(dir,{withFil
   const a=defer(),go=defer(),A=await session(p,{write:async n=>{if(n===FILE){a.resolve();await go.promise;}}});A.edit(e=>e[0].stunden='2');const saving=A.speichereMeine();await a.promise;A.edit(e=>e[0].stunden='3');go.resolve();await saving;assert.equal(A.A.meine[0].stunden,'3');assert.equal(A.saved(),false);assert.equal(JSON.parse(await fs.readFile(path.join(abr,FILE))).eintraege[0].stunden,'2');
  });
  await fixture(async(p,abr)=>{
+  const A=await session(p,{after:async(n)=>{if(n.includes('_kandidat_'))await fs.writeFile(path.join(abr,FILE),JSON.stringify({...initial,geaendert:'external'}));}});A.edit(e=>e[0].stunden='8');await assert.rejects(()=>A.speichereMeine(),/inzwischen geändert/);assert.equal(JSON.parse(await fs.readFile(path.join(abr,FILE))).geaendert,'external');assert.ok((await A.TimeStore.versions(new Dir(abr),FILE,identity)).items.some(x=>x.data.eintraege[0].stunden==='8'));
+ });
+ await fixture(async(p,abr)=>{
+  const A=await session(p);A.edit(e=>e[0].stunden='8');await A.speichereMeine();const v=await A.TimeStore.versions(new Dir(abr),FILE,identity),choice=v.items[0],data=await A.TimeStore.selected(new Dir(abr),FILE,choice,identity);
+  await fs.writeFile(path.join(abr,FILE),JSON.stringify({...initial,geaendert:'new current'}));const before=await tree(abr);await assert.rejects(()=>A.TimeStore.save(new Dir(abr),FILE,data,identity,v.current.revision,{restore:true}),/inzwischen geändert/);assert.deepEqual(await tree(abr),before,'stale recovery selection cannot replace a changed main file');
+ });
+ await fixture(async(p,abr)=>{
+  const A=await session(p);A.edit(e=>e[0].stunden='8');await A.speichereMeine();await fs.writeFile(path.join(abr,FILE),Buffer.from([0xff,0xfe]));const v=await A.TimeStore.versions(new Dir(abr),FILE,identity),choice=v.items.find(x=>x.data.eintraege[0].stunden==='8');
+  await A.TimeStore.save(new Dir(abr),FILE,await A.TimeStore.selected(new Dir(abr),FILE,choice,identity),identity,v.current.revision,{restore:true});assert.ok(Object.values((await tree(abr))[A.TimeStore.ARCHIVE]).includes(Buffer.from([0xff,0xfe]).toString('base64')),'explicit recovery preserves undecodable predecessor bytes');
+ });
+ await fixture(async(p,abr)=>{
+  const io={read:async n=>{if(n===FILE)throw Error('SYNTHETIC unreadable');}},A=await session(p,io);A.edit(e=>e.push(entry('new')));delete io.read;
+  const old={...initial,eintraege:[{...entry('nested'),extra:{keep:[1,2]}}]};Object.defineProperty(old,'__proto__',{value:{keep:true},enumerable:true});await fs.writeFile(path.join(abr,FILE),JSON.stringify(old));await A.speichereMeine();const saved=JSON.parse(await fs.readFile(path.join(abr,FILE)));assert.deepEqual(saved.__proto__,{keep:true});assert.deepEqual(saved.eintraege.find(e=>e.id==='nested').extra,{keep:[1,2]});
+ });
+ await fixture(async(p,abr)=>{
   const A=await session(p);for(let i=0;i<42;i++){A.edit(e=>e[0].notiz='Version '+i);await A.speichereMeine();}const v=await A.TimeStore.versions(new Dir(abr),FILE,identity);assert.equal(v.items.length,42);const choice=v.items[0];await fs.writeFile(path.join(abr,A.TimeStore.ARCHIVE,choice.name),JSON.stringify({...initial,geaendert:'tampered'}));await assert.rejects(()=>A.TimeStore.selected(new Dir(abr),FILE,choice,identity),/geändert/);
  });
  assert.deepEqual(initial.eintraege.map(e=>e.stunden),['1','1']);console.log('OK',count,'F4 deterministic synthetic cases; A/B/C/D covered');

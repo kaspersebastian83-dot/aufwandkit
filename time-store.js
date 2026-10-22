@@ -2,7 +2,7 @@
    Inspired by PlanKit F2, shared-project F3 and SpesenKit. No automatic pruning. */
 (function(root){
   'use strict';
-  const ARCHIVE='_Aufwand_Sicherungen', enc=new TextEncoder();
+  const ARCHIVE='_BelegKit_Sicherungen', enc=new TextEncoder();
   const error=(code,message)=>Object.assign(Error(message),{code});
   const conflict=()=>error('conflict','Die Zeitdatei wurde inzwischen geändert oder gelöscht. Nicht überschrieben. Eigene Eingaben bleiben geöffnet. Bitte „Zeitfassungen prüfen“ und bewusst entscheiden.');
   const clone=o=>JSON.parse(JSON.stringify(o));

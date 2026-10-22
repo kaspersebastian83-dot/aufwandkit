@@ -670,7 +670,7 @@ async function speichereMeine(){
     if(!cur.exists)throw Error(`„${name}“ fehlt nach dem Lesefehler. Bitte die Originaldatei wiederherstellen; die Eingaben bleiben erhalten.`);
     draft.eintraege=TimeStore.merge(draft.eintraege,cur.data.eintraege);
     // Retain unknown top-level fields in the repaired original as well.
-    for(const k of Object.keys(cur.data))if(!(k in draft))Object.defineProperty(draft,k,{value:cur.data[k],enumerable:true,writable:true,configurable:true});
+    for(const k of Object.keys(cur.data))if(!Object.prototype.hasOwnProperty.call(draft,k))Object.defineProperty(draft,k,{value:cur.data[k],enumerable:true,writable:true,configurable:true});
     expected=cur.revision;
   }
   let result;
@@ -718,7 +718,7 @@ async function pruefeZeitFassungen(){
     if(found.invalid.length)info.textContent+=' Beschädigte/inkompatible Sicherungen bleiben erhalten: '+found.invalid.join('; ');
     const choices=dlg.querySelector('[data-choices]'),preview=dlg.querySelector('[data-preview]');
     async function adopt(data,revision){
-      A.meine=JSON.parse(JSON.stringify(data.eintraege));A.meineDaten=data;A.meineRevision=revision;A.meineDefekt=false;
+      A.meine=JSON.parse(JSON.stringify(data.eintraege));A.meineDaten=data;A.meineRevision=revision;A.meineDefekt=false;A.meineOwnedEmpty=null;
       let f=A.alle.find(x=>x.kuerzel===kz);if(!f){f={kuerzel:kz,datei:name};A.alle.push(f);}
       Object.assign(f,{eintraege:JSON.parse(JSON.stringify(data.eintraege)),daten:data,revision,defekt:false});
       meineGespeichert=meineAenderung;A.schreib=Promise.resolve();zeichneZeiten();status('✓ geprüfte Zeitfassung übernommen','ok');dlg.close();
@@ -730,7 +730,7 @@ async function pruefeZeitFassungen(){
         const apply=document.createElement('button');apply.dataset.zeitUebernehmen='';
         apply.textContent=kind==='current'?'Diesen Dateistand übernehmen · eigene Eingaben sichern':'Diese vollständige Fassung speichern · aktuelle Datei ersetzen und sichern';preview.append(apply);
         apply.onclick=async()=>{
-          apply.disabled=true;
+          apply.disabled=true;status('… Zeitfassung wird geprüft und gesichert');
           try{
             if(A.proj!==proj||A.kz.toUpperCase()!==kz||A.meineMehrdeutig)throw Error('Projekt-/Kürzelzuordnung unklar.');
             if(pending)await TimeStore.draft(abr,name,local,identity);
@@ -741,7 +741,7 @@ async function pruefeZeitFassungen(){
               const selected=choice?await TimeStore.selected(abr,name,choice,identity):data;
               const result=await TimeStore.save(abr,name,selected,identity,found.current.revision,{restore:true});await adopt(result.data,result.revision);
             }
-          }catch(e){info.textContent='Nicht übernommen: '+e.message;apply.disabled=false;}
+          }catch(e){info.textContent='Nicht übernommen: '+e.message;status('Nicht übernommen: '+e.message,'err');apply.disabled=false;}
         };
       };
     }

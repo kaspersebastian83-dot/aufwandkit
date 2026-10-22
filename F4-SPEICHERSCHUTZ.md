@@ -27,7 +27,7 @@ bleiben getrennt. Web Locks koordinieren kooperierende Tabs; der Verlustschutz
 setzt keine profilübergreifende Sperre voraus.
 
 Vor dem Ersetzen werden Ausgangsbytes und vollständiger neuer Kandidat unter
-`Abrechnung/_Aufwand_Sicherungen/` gespeichert:
+`Abrechnung/_BelegKit_Sicherungen/` gespeichert:
 
 - `Aufwand_<Kürzel>_vorher_<UTC>_<UUID>.json`
 - `Aufwand_<Kürzel>_kandidat_<UTC>_<UUID>.json`
