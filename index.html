@@ -164,6 +164,7 @@ table.abr tr.summe td,table.abr tfoot td{font-weight:600}
 <div id="support">Dieser Browser kann nicht auf Ordner zugreifen. Bitte <b>Google Chrome</b> oder <b>Microsoft Edge</b> verwenden.</div>
 <main id="inhalt"></main>
 <div id="dlgBack"><div id="dlg"></div></div>
+<script src="time-store.js"></script>
 <script>
 /* AUFWAND-LOGIK-START */
 /* Reine Logik ohne DOM (tests/logik.cjs): Kategorien aus LabelKit, Summen der Zeiten, Positionen, Hinweise, Seitenzahlen.
@@ -563,12 +564,10 @@ async function ladeAlles(){
   if (abr) for await (const h of abr.values()){
     const m = /^Aufwand_([A-Za-zÄÖÜäöü]{1,6})\.json$/.exec(h.kind === 'file' ? h.name : '');
     if (!m) continue;
-    try{ const j = await liesJson(abr, h.name); A.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: Array.isArray(j.daten.eintraege) ? j.daten.eintraege : [], geaendert: j.datei.lastModified }); }
+    try{ const j = await TimeStore.read(abr, h.name, {projekt:A.proj.nr,kuerzel:m[1].toUpperCase()}); if(!j.exists)throw Error('Datei während des Lesens verschwunden'); A.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: j.data.eintraege, geaendert: j.modified, revision:j.revision, daten:j.data }); }
     catch(e){ fehler.push(e.message); A.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: [], defekt: true }); }
   }
-  const mein = A.alle.find(f => f.kuerzel === A.kz.toUpperCase());
-  A.meine = mein ? mein.eintraege.map(x => Object.assign({}, x)) : [];
-  A.meineDefekt = !!(mein && mein.defekt);
+  uebernehmeMeineDatei();
   try{ const j = await liesJson(abr, PROJ_DATEI); A.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; A.pdateiGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Berichtsangaben nicht lesbar – angekreuzte Berichte und Seitenzahlen fehlen: ${e.message}`); A.pdatei = { berichte: {} }; A.pdateiGesperrt = true; }
   // Gemeinsame Projektdaten (Projektzentrale): nur lesen und anzeigen – bearbeitet wird in der Projektzentrale
@@ -628,6 +627,17 @@ async function ladeAlles(){
 }
 
 /* ---------- Speichern ---------- */
+function uebernehmeMeineDatei(){
+  const liste=A.alle.filter(f=>f.kuerzel===A.kz.toUpperCase()), f=liste[0];
+  A.meine=JSON.parse(JSON.stringify(f?.eintraege||[])); A.meineMehrdeutig=liste.length>1;
+  A.meineDefekt=!!f?.defekt; A.meineRevision=f?(f.defekt?null:f.revision):'missing';
+  A.meineDaten=f?.daten||null; A.meineOwnedEmpty=null; A.meineDateiname=f?.datei||`Aufwand_${A.kz.toUpperCase()}.json`;
+}
+function meineDateiDaten(eintraege=A.meine){
+  return JSON.parse(JSON.stringify({...A.meineDaten,format:'aufwandkit-zeiten',version:1,
+    hinweis:'Zeiten, km und Spesen einer Person für dieses Projekt (BelegKit). Jede Person schreibt nur ihre eigene Datei.',
+    projekt:A.proj.nr,kuerzel:A.kz.toUpperCase(),geaendert:new Date().toISOString(),geaendertMit:APP_NAME+' '+APP_VERSION,eintraege}));
+}
 let speichernTimer = null, meineAenderung = 0, meineGespeichert = 0;
 function meineGeaendert(){
   meineAenderung++;
@@ -648,40 +658,106 @@ async function sichereMeine(){
 }
 async function speichereMeine(){
   if (!A.proj || !AW.kuerzelOk(A.kz)) return;
-  const wiederherstellen = A.meineDefekt;
-  const abr = await unter(A.proj.dir, ORDNER.abr, !wiederherstellen), name = `Aufwand_${A.kz.toUpperCase()}.json`;
-  if (wiederherstellen){
-    const cur = await liesJson(abr, name), o = cur && cur.daten;
-    if (!o) throw new Error(`„${name}“ fehlt nach dem Lesefehler. Bitte die Originaldatei wiederherstellen; die Eingaben bleiben erhalten.`);
-    if (o.format !== 'aufwandkit-zeiten' || o.version !== 1 || o.projekt !== A.proj.nr || o.kuerzel !== A.kz.toUpperCase() || !Array.isArray(o.eintraege))
-      throw new Error(`„${name}“ hat keine gültige Struktur für dieses Projekt und Kürzel und wird nicht überschrieben.`);
-    const zusammen = new Map();
-    for (const liste of [A.meine, o.eintraege]){
-      const ids = new Set();
-      for (const e of liste){
-        if (!e || typeof e !== 'object' || Array.isArray(e) || typeof e.id !== 'string' || !e.id.trim() || ids.has(e.id))
-          throw new Error(`„${name}“: Einträge sind nicht eindeutig anhand ihrer IDs zuzuordnen. Die Datei wird nicht überschrieben; die Eingaben bleiben erhalten.`);
-        ids.add(e.id);
-        const bisher = zusammen.get(e.id);
-        if (bisher && (Object.keys(bisher).length !== Object.keys(e).length || Object.keys(e).some(k => bisher[k] !== e[k])))
-          throw new Error(`„${name}“: Widersprüchliche Einträge mit derselben ID. Bitte den Konflikt klären; Datei und Eingaben bleiben erhalten.`);
-        if (!bisher) zusammen.set(e.id, e);
-      }
-    }
-    // Neue Eingaben behalten ihre Zeilenposition; Originaleinträge werden nur einmal ergänzt.
-    A.meine = [...zusammen.values()];
+  if(A.meineMehrdeutig)throw Error('Mehrere Zeitdateien für dasselbe Kürzel. Bitte Dateizuordnung klären; nichts überschrieben.');
+  const proj=A.proj,kz=A.kz.toUpperCase(),identity={projekt:proj.nr,kuerzel:kz},name=A.meineDateiname||`Aufwand_${kz}.json`;
+  const wiederherstellen=A.meineDefekt,stand=meineAenderung,draft=meineDateiDaten(),draftIds=new Set(draft.eintraege.map(e=>e.id));
+  let expected=A.meineRevision;
+  const abr=await unter(proj.dir,ORDNER.abr,!wiederherstellen);
+  if(wiederherstellen){
+    // Preserve the existing recovery after a read failure: only a repaired, valid
+    // source with disjoint or identical IDs may be combined. Never replace it blind.
+    const cur=await TimeStore.read(abr,name,identity);
+    if(!cur.exists)throw Error(`„${name}“ fehlt nach dem Lesefehler. Bitte die Originaldatei wiederherstellen; die Eingaben bleiben erhalten.`);
+    draft.eintraege=TimeStore.merge(draft.eintraege,cur.data.eintraege);
+    // Retain unknown top-level fields in the repaired original as well.
+    for(const k of Object.keys(cur.data))if(!Object.prototype.hasOwnProperty.call(draft,k))Object.defineProperty(draft,k,{value:cur.data[k],enumerable:true,writable:true,configurable:true});
+    expected=cur.revision;
   }
-  const stand = meineAenderung;
-  await schreibJson(abr, name, { format: 'aufwandkit-zeiten', version: 1, hinweis: 'Zeiten, km und Spesen einer Person für dieses Projekt (BelegKit). Jede Person schreibt nur ihre eigene Datei.',
-    projekt: A.proj.nr, kuerzel: A.kz.toUpperCase(), geaendert: new Date().toISOString(), geaendertMit: APP_NAME + ' ' + APP_VERSION, eintraege: A.meine });
-  const f = A.alle.find(x => x.kuerzel === A.kz.toUpperCase());
-  if (f) f.eintraege = A.meine.map(x => Object.assign({}, x)); else A.alle.push({ kuerzel: A.kz.toUpperCase(), datei: name, eintraege: A.meine.map(x => Object.assign({}, x)) });
-  A.meineDefekt = false; if (f) f.defekt = false;
-  meineGespeichert = stand;
-  if (wiederherstellen && A.tab === 'zeiten') zeichneZeiten();
-  status('✓ gespeichert in „Abrechnung/' + name + '“', 'ok');
-  if (A.tab === 'zeiten') zeichneKollegen();
+  let result;
+  try{result=await TimeStore.save(abr,name,draft,identity,expected,{ownedEmpty:A.meineOwnedEmpty});}
+  catch(e){if(e.ownedEmpty)A.meineOwnedEmpty=e.ownedEmpty;throw e;}
+  A.meineOwnedEmpty=null;
+  if(A.proj!==proj||A.kz.toUpperCase()!==kz)throw Error('Projekt oder Kürzel während der Speicherung gewechselt. Die geprüfte Fassung bleibt gesichert.');
+  A.meineRevision=result.revision;A.meineDaten=result.data;
+  if(wiederherstellen){
+    if(meineAenderung===stand)A.meine=JSON.parse(JSON.stringify(result.data.eintraege));
+    else for(const e of result.data.eintraege)if(!draftIds.has(e.id)&&!A.meine.some(x=>x.id===e.id))A.meine.push(JSON.parse(JSON.stringify(e)));
+  }
+  let f=A.alle.find(x=>x.kuerzel===kz);
+  if(!f){f={kuerzel:kz,datei:name};A.alle.push(f);}
+  Object.assign(f,{eintraege:JSON.parse(JSON.stringify(result.data.eintraege)),daten:result.data,revision:result.revision,defekt:false});
+  A.meineDefekt=false;meineGespeichert=stand;
+  if(wiederherstellen&&A.tab==='zeiten')zeichneZeiten();
+  status('✓ gespeichert in „Abrechnung/'+name+'“','ok');
+  if(A.tab==='zeiten')zeichneKollegen();
+  aktualisiereZeitFassungen();
 }
+
+/* F4 recovery: complete previews, explicit choices, own pending inputs retained. */
+async function aktualisiereZeitFassungen(){
+  const button=$('zFassungen'),proj=A.proj,kz=A.kz;if(!button||!proj)return;
+  try{
+    const abr=await unter(proj.dir,ORDNER.abr,false),v=await TimeStore.versions(abr,A.meineDateiname,{projekt:proj.nr,kuerzel:kz.toUpperCase()});
+    if(button.isConnected&&A.proj===proj&&A.kz===kz)button.textContent='Zeitfassungen prüfen'+(v.items.length?' ('+v.items.length+' abweichend)':'')+(v.invalid.length?' · beschädigte Sicherungen':'');
+  }catch(e){button.textContent='Zeitfassungen prüfen · Lesen fehlgeschlagen';button.title=e.message;}
+}
+async function pruefeZeitFassungen(){
+  const proj=A.proj,kz=A.kz.toUpperCase(),identity={projekt:proj.nr,kuerzel:kz},name=A.meineDateiname;
+  const hatteTimer=!!speichernTimer;clearTimeout(speichernTimer);speichernTimer=null;
+  const dlg=document.createElement('dialog');dlg.dataset.zeitFassungen='';dlg.style.cssText='max-width:850px;width:90%;max-height:85vh;overflow:auto';
+  dlg.innerHTML='<h3>Zeitfassungen prüfen</h3><p>Vollständige Fassungen prüfen und bewusst auswählen. Eine gespeicherte Fassung kann auch aus einem abgebrochenen Versuch stammen. Keine automatische Zusammenführung oder Löschung. Vor dem Ersetzen oder Verwerfen werden deine offenen Eingaben verifiziert gesichert.</p><p role="status" data-info></p><div data-choices></div><div data-preview></div><button data-close>Schließen · Eingaben behalten</button>';
+  document.body.append(dlg);dlg.showModal();dlg.querySelector('[data-close]').onclick=()=>dlg.close();
+  dlg.addEventListener('close',()=>{dlg.remove();if(hatteTimer&&meineAenderung!==meineGespeichert&&A.proj===proj&&A.kz.toUpperCase()===kz)meineGeaendert();});
+  const info=dlg.querySelector('[data-info]');
+  try{
+    await A.schreib.catch(()=>{});
+    if(A.proj!==proj||A.kz.toUpperCase()!==kz)throw Error('Projekt oder Kürzel inzwischen gewechselt.');
+    const local=meineDateiDaten(),pending=meineAenderung!==meineGespeichert,abr=await unter(proj.dir,ORDNER.abr,true);
+    const found=await TimeStore.versions(abr,name,identity);let current=null;
+    try{current=TimeStore.parse(found.current,identity);}catch(e){info.textContent='Hauptdatei: '+e.message;}
+    if(found.invalid.length)info.textContent+=' Beschädigte/inkompatible Sicherungen bleiben erhalten: '+found.invalid.join('; ');
+    const choices=dlg.querySelector('[data-choices]'),preview=dlg.querySelector('[data-preview]');
+    async function adopt(data,revision){
+      A.meine=JSON.parse(JSON.stringify(data.eintraege));A.meineDaten=data;A.meineRevision=revision;A.meineDefekt=false;A.meineOwnedEmpty=null;
+      let f=A.alle.find(x=>x.kuerzel===kz);if(!f){f={kuerzel:kz,datei:name};A.alle.push(f);}
+      Object.assign(f,{eintraege:JSON.parse(JSON.stringify(data.eintraege)),daten:data,revision,defekt:false});
+      meineGespeichert=meineAenderung;A.schreib=Promise.resolve();zeichneZeiten();status('✓ geprüfte Zeitfassung übernommen','ok');dlg.close();
+    }
+    function option(label,data,kind,choice){
+      const button=document.createElement('button');button.textContent=label;choices.append(button);
+      button.onclick=()=>{
+        preview.replaceChildren();const text=document.createElement('textarea');text.readOnly=true;text.value=JSON.stringify(data,null,2);text.setAttribute('aria-label','Vollständige Zeitfassung');text.style.cssText='width:100%;height:260px';preview.append(text);
+        const apply=document.createElement('button');apply.dataset.zeitUebernehmen='';
+        apply.textContent=kind==='current'?'Diesen Dateistand übernehmen · eigene Eingaben sichern':'Diese vollständige Fassung speichern · aktuelle Datei ersetzen und sichern';preview.append(apply);
+        apply.onclick=async()=>{
+          apply.disabled=true;status('… Zeitfassung wird geprüft und gesichert');
+          try{
+            if(A.proj!==proj||A.kz.toUpperCase()!==kz||A.meineMehrdeutig)throw Error('Projekt-/Kürzelzuordnung unklar.');
+            if(pending)await TimeStore.draft(abr,name,local,identity);
+            if(kind==='current'){
+              const now=await TimeStore.read(abr,name,identity);if(now.revision!==found.current.revision||!now.exists)throw Error('Dateistand inzwischen geändert. Bitte neu prüfen.');
+              await adopt(now.data,now.revision);
+            }else{
+              const selected=choice?await TimeStore.selected(abr,name,choice,identity):data;
+              const result=await TimeStore.save(abr,name,selected,identity,found.current.revision,{restore:true});await adopt(result.data,result.revision);
+            }
+          }catch(e){info.textContent='Nicht übernommen: '+e.message;status('Nicht übernommen: '+e.message,'err');apply.disabled=false;}
+        };
+      };
+    }
+    if(current)option('Aktuelle Datei prüfen',current,'current');
+    if(pending)option('Eigene ungespeicherte Eingaben prüfen',local,'local');
+    if(current&&pending){
+      const merge=document.createElement('button');merge.textContent='Konfliktfreie Einträge zur Prüfung zusammenführen';choices.append(merge);
+      merge.onclick=()=>{try{const data={...current,...local,eintraege:TimeStore.merge(local.eintraege,current.eintraege)};option('Zusammengeführte Fassung prüfen',data,'merged');merge.disabled=true;}catch(e){info.textContent=e.message;}};
+    }
+    const list=document.createElement('div'),prev=document.createElement('button'),next=document.createElement('button');prev.textContent='Zurück';next.textContent='Weitere Fassungen';choices.append(list,prev,next);
+    let page=0;const draw=()=>{list.replaceChildren();prev.disabled=!page;next.disabled=(page+1)*20>=found.items.length;
+      const container=choices;for(const c of found.items.slice(page*20,page*20+20)){option('Sicherung prüfen: '+c.name,c.data,'backup',c);list.append(container.lastElementChild);}
+    };prev.onclick=()=>{page--;draw();};next.onclick=()=>{page++;draw();};draw();
+  }catch(e){info.textContent='Fassungen können nicht geprüft werden: '+e.message;}
+}
+
 /** Projektdatei: frisch lesen, nur die Berichtsangabe ändern, schreiben (wie _Projekt.json). */
 async function speichereBericht(stamm, patch){
   if (A.pdateiGesperrt){ status(`„${PROJ_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
@@ -750,15 +826,17 @@ function zeichneZeiten(){
   s.innerHTML = `<div class="karte"><div class="kopfzeile"><h2>Meine Zeiten · ${esc(kz)}</h2><span class="m">gespeichert in <code>Abrechnung/Aufwand_${esc(kz)}.json</code></span></div>
     <div class="tabwrap"><table class="eing"><thead><tr><th>Datum</th><th>Tätigkeit</th><th>Rolle</th><th class="r">Stunden</th><th class="r" title="Nur der Fahrer trägt km ein">km</th><th class="r" title="Tage mit Anspruch auf Tagesspesen">Spesen&nbsp;Tage</th><th class="r">Übern.</th><th class="r">Betrag&nbsp;€</th><th>Bemerkung</th><th></th></tr></thead>
     <tbody id="zRows">${A.meine.map((e, i) => zeileHtml(e, i)).join('')}</tbody></table></div>
-    <div class="zeile" style="margin-top:10px"><button class="primary" id="zNeu">+ Ortstermin</button><button id="zNeuB">+ Auswertung / Bericht</button>
+    <div class="zeile" style="margin-top:10px"><button class="primary" id="zNeu">+ Ortstermin</button><button id="zNeuB">+ Auswertung / Bericht</button><button id="zFassungen">Zeitfassungen prüfen</button><button id="zRetry">Erneut speichern</button>
       <span class="m">Fahrzeit gehört zum Ortstermin. km trägt nur der Fahrer ein. Übernachtung: Anzahl und Betrag lt. Beleg.</span></div></div>
     <div class="karte" id="kollegen"></div>`;
-  const neu = art => { const letzt = A.meine[A.meine.length - 1]; A.meine.push({ id: 'z' + Date.now().toString(36), datum: art === 'ort' ? heuteIso() : (letzt && letzt.datum) || heuteIso(), art, rolle: personRolle(kz), stunden: '', km: '', spesen: '', hotelAnzahl: '', hotelBetrag: '', notiz: '' }); zeichneZeiten(); const r = $('zRows').lastElementChild; r && r.querySelector('[data-f="stunden"]').focus(); meineGeaendert(); };
+  const neu = art => { const letzt = A.meine[A.meine.length - 1]; A.meine.push({ id: 'z' + crypto.randomUUID(), datum: art === 'ort' ? heuteIso() : (letzt && letzt.datum) || heuteIso(), art, rolle: personRolle(kz), stunden: '', km: '', spesen: '', hotelAnzahl: '', hotelBetrag: '', notiz: '' }); zeichneZeiten(); const r = $('zRows').lastElementChild; r && r.querySelector('[data-f="stunden"]').focus(); meineGeaendert(); };
   $('zNeu').onclick = () => neu('ort'); $('zNeuB').onclick = () => neu('buero');
   const tb = $('zRows');
   tb.oninput = tb.onchange = e => { const el = e.target, i = +el.closest('tr').dataset.i, f = el.dataset.f; if (!f || A.meine[i][f] === el.value) return; A.meine[i][f] = el.value;   /* „change“ beim Verlassen eines schon gespeicherten Felds löst keine zweite Speicherung aus */ if (f === 'art') zeichneZeiten(); meineGeaendert(); };
   tb.onclick = e => { const r = e.target.closest('button[data-route]'); if (r){ routeDialog(+r.dataset.route); return; } const b = e.target.closest('button[data-weg]'); if (!b) return; const i = +b.dataset.weg, x = A.meine[i];
     if ((x.stunden || x.km) && !confirm(`Eintrag vom ${AW.datumDe(x.datum)} löschen?`)) return; A.meine.splice(i, 1); zeichneZeiten(); meineGeaendert(); };
+  $('zFassungen').onclick=pruefeZeitFassungen; $('zRetry').onclick=()=>{clearTimeout(speichernTimer);speichernTimer=null;reiheMeineEin();};
+  aktualisiereZeitFassungen();
   zeichneKollegen();
 }
 /* ---------- Route in Google Maps (1.4) ----------
@@ -828,7 +906,7 @@ async function setzeKuerzel(v){
   try{ await sichereMeine(); }catch(e){ $('kz').value = A.kz; return; }   // Eingaben des bisherigen Kürzels gehören in dessen Datei
   A.kz = v.trim().toUpperCase(); try{ localStorage.setItem('aufwandkit-kuerzel', A.kz); localStorage.setItem(KZ_GEMEINSAM, A.kz); }catch(e){}
   $('kz').value = A.kz;
-  const f = A.alle.find(x => x.kuerzel === A.kz); A.meine = f ? f.eintraege.map(x => Object.assign({}, x)) : []; A.meineDefekt = !!(f && f.defekt);
+  uebernehmeMeineDatei();
   if (!A.proj) return;
   if ($('seite')) zeichneSeite(); else zeichne();   // nur den Inhalt – die Reiterleiste bleibt, ein gleichzeitiger Klick darauf geht nicht verloren
 }

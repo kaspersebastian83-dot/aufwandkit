@@ -35,10 +35,12 @@ Beträge (nur Vorschau): Menge × Preis kaufmännisch auf Cent gerundet, mit der
 
 | Datei | Inhalt |
 |---|---|
-| `<Projekt>/Abrechnung/Aufwand_<Kürzel>.json` | Zeiten einer Person. Jede Person schreibt nur ihre eigene Datei – gleichzeitiges Arbeiten überschreibt nichts. |
+| `<Projekt>/Abrechnung/Aufwand_<Kürzel>.json` | Zeiten einer Person. Vollständige Inhaltsrevision, Konfliktprüfung und dauerhaft verifizierte Sicherungskandidaten schützen bestätigte Fassungen bei parallelen Sitzungen. |
 | `<Projekt>/Abrechnung/_Abrechnung.json` | Welche Berichte abgerechnet werden und ihre Seitenzahl (frisch lesen → ändern → schreiben). |
 | `<Projekt>/Abrechnung/<Nr>_Aufwand_<Datum>.json` / `.csv` | „Stand speichern“: Positionen, Hinweise und SHA-256 jeder Quelle; nie überschreibend. CSV für Excel. |
 | `<Archivordner>/_AufwandKit-Einstellungen.json` | Positionen (Nummer, Text, Einheit, Preis für die Vorschau), Zuordnung der Probenarten, Personen, Sätze für 3.002 – gilt für alle Projekte. Vorbelegt nach Rechnung 202600542. |
+
+Sicherungen liegen unter `Abrechnung/_BelegKit_Sicherungen/`. „Zeitfassungen prüfen“ bietet eine vollständige Vorschau und ausdrückliche Wiederherstellung. Keine automatische Löschung oder Auflösung widersprüchlicher Einträge. Details und Testgrenzen: [F4-SPEICHERSCHUTZ.md](F4-SPEICHERSCHUTZ.md).
 
 Gelesen (nie geschrieben): `Laboraufträge/…_Daten.json` (LabelKit), `Fotos/_Bildumbenenner.json` (FotoKit), Berichte in `Mitteilungen`.
 
@@ -50,6 +52,8 @@ Gelesen (nie geschrieben): `Laboraufträge/…_Daten.json` (LabelKit), `Fotos/_B
 
 ```
 node tests/logik.cjs
+node tests/f4.cjs
+NODE_PATH=… node tests/f4-browser.cjs chromium   # ebenfalls webkit; unabhängige Sitzungen, synthetische Dateibrücke
 NODE_PATH=… node tests/browser.cjs chromium   # braucht Playwright (nicht im Repository)
 NODE_PATH=… node tests/leiste-browser.cjs chromium   # Leiste mit Projekt, Arbeitsschritten und „Weiter“
 ```
