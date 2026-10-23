@@ -412,9 +412,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.4.1';
-const APP_DATE = '2026-10-20';
+const APP_VERSION = '1.5.0';
+const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.5.0', '23.10.2026', 'Die Spektron-Leiste oben zeigt „Nr. Ort · zuständige Person“: Liegt im Archivordner die Mitarbeiterliste der Projektzentrale, wird das Kürzel am Ende des Projektordners erkannt und mit Namen angezeigt; eine in der Projektzentrale abweichend gewählte Person hat Vorrang.'],
   ['1.4.1', '20.10.2026', 'Projektzentrale und Spektron-Leiste übergeben Projekte jetzt über #projekt im Fragment. Sonderzeichen bleiben erhalten; alte ?projekt-Links funktionieren weiterhin und werden nach dem Laden bereinigt. Projektwechsel laden auch bereits geöffnete App-Fenster neu; eine Warnung vor ungesicherten Eingaben kann den Wechsel abbrechen.'],
   ['1.4.0', '19.10.2026', 'Neu: 🗺 neben den km jedes Ortstermins – öffnet Google Maps in einem eigenen Fenster mit Büro → Objekt → Büro (Objekt aus der Projektzentrale, Start änderbar, auch nur Hinfahrt). km ablesen und übernehmen; der Link zur Route wird am Eintrag gespeichert (auch ein in Google Maps angepasster, geteilter Link), damit die km später nachvollziehbar sind. BelegKit selbst verbindet sich weiterhin mit keinem fremden Server. Außerdem behoben: Die Leiste oben zeigt jetzt das Objekt aus der Projektzentrale neben dem Projekt.'],
   ['1.3.3', '18.10.2026', 'Die Leiste oben zeigt links den Namen der App-Suite „Spektron“ (die Büro-Apps Projektzentrale, LabelKit, FotoKit, PlanKit, BelegKit und SpesenKit). Sonst unverändert.'],
@@ -1089,6 +1090,34 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
   var ZENTRALE = '../Projektzentrale/', MAX = 6;
   var ich = '', kompakt = false, name = '', stand = null, zuletzt = [], bar = null, pop = null, timer = 0, lauf = 0;
   var nfc = function(s){ try{ return String(s).normalize('NFC'); }catch(e){ return String(s); } };
+  /* Kurzfassung von SPEKTRON-ORDNERNAME v1 (Projektzentrale): Kürzel am Ende des Ordnernamens anhand der Mitarbeiterliste */
+  var maNorm = function(x){ return nfc(x == null ? '' : x).toLowerCase().replace(/[\s.]+/g, ''); };
+  function ordnerName(n, personen){
+    var m = /^(\d{2})\.(\d{2,6})(?:[\s_-]+(.*))?$/.exec(nfc(n).trim());
+    if (!m) return null;
+    var rest = (m[3] || '').trim(), r = { nr: m[1] + '.' + m[2], ort: rest, kuerzel: '' };
+    if (!personen || !personen.length) return r;
+    var w = [], re = /[^\s_]+/g, x;
+    while ((x = re.exec(rest))) w.push(x);
+    for (var k = Math.min(3, w.length); k >= 1; k--){
+      var ende = maNorm(w.slice(-k).map(function(y){ return y[0]; }).join(''));
+      var p = personen.find(function(q){ return q && maNorm(q.ordnerKuerzel) === ende; });
+      if (p){ r.kuerzel = String(p.ordnerKuerzel).trim(); r.ort = rest.slice(0, w[w.length - k].index).replace(/[\s_-]+$/, ''); return r; }
+    }
+    return r;
+  }
+  /* Anzeige „Nr. Ort“ und zuständige Person (manuell aus _Projekt.json, sonst aus dem Ordnernamen) */
+  async function personUndAnzeige(arch, s, zust){
+    var personen = null;
+    try{
+      var mt = await arch.getFileHandle('_Spektron-Mitarbeiter.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); });
+      var mj = JSON.parse(mt); if (mj && mj.format === 'spektron-mitarbeiter' && Array.isArray(mj.personen)) personen = mj.personen;
+    }catch(e){}
+    var o = ordnerName(name, personen);
+    if (o) s.anzeige = o.nr + (o.ort ? ' ' + o.ort : '');
+    var k = zust && typeof zust === 'object' && typeof zust.kuerzel === 'string' ? zust.kuerzel : (o ? o.kuerzel : '');
+    if (k){ var pp = (personen || []).find(function(q){ return q && maNorm(q.ordnerKuerzel) === maNorm(k); }); s.person = pp && pp.name ? pp.name : k; }
+  }
   var h = function(tag, attrs){
     var el = document.createElement(tag);
     for (var k in (attrs || {})){ if (k === 'text') el.textContent = attrs[k]; else el.setAttribute(k, attrs[k]); }
@@ -1162,11 +1191,12 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       try{ for await (var e of arch.values()) if (e.kind === 'directory' && nfc(e.name) === nfc(name)){ proj = e; break; } }catch(e2){}
     }
     if (!proj) return null;
-    var s = { label: false, fotos: false, plan: false, beleg: false, objekt: '' };
+    var s = { label: false, fotos: false, plan: false, beleg: false, objekt: '', anzeige: '', person: '' }, zust = null;
     try{
       var pj = await proj.getFileHandle('_Projekt.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); }).catch(function(){ return ''; });
-      if (pj){ var j = JSON.parse(pj), o = j && (typeof j.objekt === 'string' ? j.objekt : j.daten && j.daten.objekt); if (typeof o === 'string') s.objekt = o.trim(); }   // Projektzentrale schreibt die Felder direkt in _Projekt.json (ältere Testdateien: unter „daten“)
+      if (pj){ var j = JSON.parse(pj), o = j && (typeof j.objekt === 'string' ? j.objekt : j.daten && j.daten.objekt); if (typeof o === 'string') s.objekt = o.trim(); zust = j && j.zustaendig; }   // Projektzentrale schreibt die Felder direkt in _Projekt.json (ältere Testdateien: unter „daten“)
     }catch(e3){}
+    await personUndAnzeige(arch, s, zust);
     try{ var fo = await unterordner(proj, 'Fotos'); if (fo) s.fotos = await fo.getFileHandle('_Bildumbenenner.json').then(function(){ return true; }, function(){ return false; }); }catch(e4){}
     try{
       var la = await unterordner(proj, 'Laboraufträge');
@@ -1198,7 +1228,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       '#mosaikLeiste .ml-home,#mosaikLeiste .ml-proj{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 9px;color:#c9d6df}' +
       '#mosaikLeiste .ml-home:hover,#mosaikLeiste .ml-proj:hover,#mosaikLeiste .ml-proj[aria-expanded=true]{background:rgba(255,255,255,.1);color:#fff}' +
       '#mosaikLeiste .ml-marke{flex:none;padding:0 6px 0 2px;color:#8fb3d1;font-weight:700;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;white-space:nowrap}' +
-      '#mosaikLeiste .ml-proj b{color:#fff;font-weight:650}#mosaikLeiste .ml-obj{color:#9fb1be;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;max-width:34ch}' +
+      '#mosaikLeiste .ml-proj b{color:#fff;font-weight:650}#mosaikLeiste .ml-obj{color:#9fb1be;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:0 1 auto;max-width:34ch}#mosaikLeiste .ml-wer{color:#dfe8ee;flex:0 0 auto}' +
       '#mosaikLeiste .ml-sp{flex:1 1 0;min-width:4px}' +
       '#mosaikLeiste .ml-steps{display:flex;align-items:center;gap:2px}' +
       '#mosaikLeiste .ml-step{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 9px;color:#b9c8d3;position:relative}' +
@@ -1248,9 +1278,10 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     bar.appendChild(h('span', { class: 'ml-marke', title: 'Spektron – die Büro-Apps', text: 'Spektron' }));
     bar.appendChild(h('a', { class: 'ml-home', href: ZENTRALE, target: 'projektzentrale', title: 'Alle Projekte (Projektzentrale)' }, h('b', { text: '⌂', 'aria-hidden': 'true' }), h('span', { text: 'Projektzentrale' })));
     if (name){
-      var pb = h('button', { class: 'ml-proj', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Anderes Projekt öffnen' }, h('b', { text: name }), h('span', { text: '▾', 'aria-hidden': 'true' }));
+      var pb = h('button', { class: 'ml-proj', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Anderes Projekt öffnen' }, h('b', { text: (stand && stand.anzeige) || name, title: name }), h('span', { text: '▾', 'aria-hidden': 'true' }));
       pb.onclick = function(ev){ ev.stopPropagation(); oeffnePop(pb); };
       bar.appendChild(pb);
+      if (stand && stand.person) bar.appendChild(h('span', { class: 'ml-obj ml-wer', text: '· ' + stand.person, title: 'Zuständig: ' + stand.person }));
       if (stand && stand.objekt) bar.appendChild(h('span', { class: 'ml-obj', text: stand.objekt, title: stand.objekt }));
       bar.appendChild(h('span', { class: 'ml-sp' }));
       var steps = h('span', { class: 'ml-steps' });

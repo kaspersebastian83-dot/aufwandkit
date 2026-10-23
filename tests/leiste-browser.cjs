@@ -45,7 +45,8 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
     const archiv = await r.getDirectoryHandle('Mosaik Archivordner', {create: true});
     const put = async (dir, n, t) => { const w = await (await dir.getFileHandle(n, {create: true})).createWritable(); await w.write(t); await w.close(); };
     const pa = await archiv.getDirectoryHandle(a, {create: true}); await archiv.getDirectoryHandle(b, {create: true});
-    await put(pa, '_Projekt.json', JSON.stringify({format: 'mosaik-projekt', version: 1, projektnummer: '26.0142', schadenort: 'Teststadt', objekt: 'EFH, Musterweg 7, 52525 Heinsberg'}));
+    await put(pa, '_Projekt.json', JSON.stringify({format: 'mosaik-projekt', version: 1, projektnummer: '26.0142', schadenort: 'Teststadt', objekt: 'EFH, Musterweg 7, 52525 Heinsberg', zustaendig: {kuerzel: 'Abc', gesetzt: 'manuell'}}));
+    await put(archiv, '_Spektron-Mitarbeiter.json', JSON.stringify({format: 'spektron-mitarbeiter', version: 1, personen: [{ordnerKuerzel: 'Abc', name: 'Anna Beispiel', aktiv: true}]}));   // erfundene Person
     await put(await pa.getDirectoryHandle('Laboraufträge', {create: true}), '26.0142_Daten.json', '{}');
     await put(await pa.getDirectoryHandle('Fotos', {create: true}), '_Bildumbenenner.json', '{}');
     await new Promise((res, rej) => { const q = indexedDB.open('mosaik-suite', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv');
@@ -64,6 +65,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   await page.waitForSelector('#mosaikLeiste .ml-obj', {timeout: 8000});
   const txt = (await leiste.textContent()).replace(/\s+/g, ' ');
   assert.match(txt, /26\.0142 Teststadt/); assert.match(txt, /EFH, Musterweg 7, 52525 Heinsberg/);
+  await leiste.locator('.ml-wer', {hasText: 'Anna Beispiel'}).waitFor({timeout: 8000});   // zuständige Person (Mitarbeiterliste + _Projekt.json)
   for (const n of ['LabelKit', 'FotoKit', 'PlanKit', 'BelegKit']) assert.match(txt, new RegExp(n));
   const schritt = id => leiste.locator('.ml-step', {hasText: {label: 'LabelKit', fotos: 'FotoKit', plan: 'PlanKit', beleg: 'BelegKit'}[id]});
   assert.ok(await schritt('label').evaluate(e => e.classList.contains('done')), 'LabelKit erledigt');
