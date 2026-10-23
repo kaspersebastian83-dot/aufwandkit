@@ -157,7 +157,7 @@ table.abr tr.summe td,table.abr tfoot td{font-weight:600}
     <button id="bNeu" title="Alle Dateien des Projekts neu lesen (z. B. nachdem Kollegen etwas eingetragen haben)">Neu einlesen</button>
     <span id="status" role="status" aria-live="polite"></span>
     <span class="spacer"></span>
-    <label for="kz">Ihr Kürzel <input type="text" id="kz" maxlength="6" placeholder="z. B. SK" autocomplete="off"></label>
+    <label for="kz">Ihr Kürzel <input type="text" id="kz" list="ma-kuerzel" maxlength="6" placeholder="z. B. SK" autocomplete="off"></label>
   </div>
 </header>
 <div id="banner"></div>
@@ -412,9 +412,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.6.0', '23.10.2026', 'Projektordner „26.0123 Köln Nad“: Mit der Mitarbeiterliste der Projektzentrale steht der Ort ohne Kürzel (Projektauswahl, Abrechnung, Routenziel). „Ihr Kürzel“: Ist noch keines gespeichert und wurde in der Projektzentrale „Ich bin …“ gewählt, übernimmt BelegKit beim Öffnen eines Projekts das App-Kürzel aus der Mitarbeiterliste; ein vorhandenes Kürzel wird nie überschrieben. Das Kürzelfeld bietet die Kürzel der Liste zur Auswahl an.'],
   ['1.5.0', '23.10.2026', 'Die Spektron-Leiste oben zeigt „Nr. Ort · zuständige Person“: Liegt im Archivordner die Mitarbeiterliste der Projektzentrale, wird das Kürzel am Ende des Projektordners erkannt und mit Namen angezeigt; eine in der Projektzentrale abweichend gewählte Person hat Vorrang.'],
   ['1.4.1', '20.10.2026', 'Projektzentrale und Spektron-Leiste übergeben Projekte jetzt über #projekt im Fragment. Sonderzeichen bleiben erhalten; alte ?projekt-Links funktionieren weiterhin und werden nach dem Laden bereinigt. Projektwechsel laden auch bereits geöffnete App-Fenster neu; eine Warnung vor ungesicherten Eingaben kann den Wechsel abbrechen.'],
   ['1.4.0', '19.10.2026', 'Neu: 🗺 neben den km jedes Ortstermins – öffnet Google Maps in einem eigenen Fenster mit Büro → Objekt → Büro (Objekt aus der Projektzentrale, Start änderbar, auch nur Hinfahrt). km ablesen und übernehmen; der Link zur Route wird am Eintrag gespeichert (auch ein in Google Maps angepasster, geteilter Link), damit die km später nachvollziehbar sind. BelegKit selbst verbindet sich weiterhin mit keinem fremden Server. Außerdem behoben: Die Leiste oben zeigt jetzt das Objekt aus der Projektzentrale neben dem Projekt.'],
@@ -442,8 +443,78 @@ const SUITE = {
   async get(k){ const db = await this.open(); return new Promise((res, rej) => { const r = db.transaction('kv').objectStore('kv').get(k); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
   async set(k, v){ const db = await this.open(); return new Promise((res, rej) => { const t = db.transaction('kv', 'readwrite'); t.objectStore('kv').put(v, k); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }); },
 };
+/* ---------- Projektordner „JJ.Nummer Ort Kürzel“ und Mitarbeiterliste (wie Projektzentrale) ---------- */
 const PROJ_RE = /^(\d{2})\.(\d{2,6})(?:[\s_-]+(.*))?$/;
-const parseProj = n => { const m = PROJ_RE.exec(String(n).normalize('NFC').trim()); return m ? { nr: `${m[1]}.${m[2]}`, ort: (m[3] || '').trim(), key: (+m[1]) * 1e6 + (+m[2]) } : null; };
+/* SPEKTRON-ORDNERNAME v1 – in allen Apps identisch halten.
+   Liest den Ordnernamen von hinten: Am Ende wird ein Kürzel der Mitarbeiterliste gesucht (bis zu drei Wörter, längster Treffer
+   zuerst; verglichen ohne Groß-/Kleinschreibung, Leerzeichen und Punkte, also „Dr. Ka“ = „Dr.Ka“ = „dr ka“). Alles zwischen
+   Projektnummer und Kürzel ist der Ort, mit oder ohne Straße. Nichts wird geraten: Kein Treffer → Ort = ganzer Rest, Hinweis.
+   Ohne Mitarbeiterliste wird nichts abgetrennt (Verhalten wie vor 1.12). Kennung bleibt immer der volle Ordnername. */
+const maNorm = s => String(s ?? '').normalize('NFC').toLowerCase().replace(/[\s.]+/g, '');
+function leseProjektordner(name, personen){
+  const m = PROJ_RE.exec(String(name).normalize('NFC').trim());
+  if (!m) return null;
+  const rest = (m[3] || '').trim();
+  const r = { nr: `${m[1]}.${m[2]}`, yy: m[1], ort: rest, key: (+m[1]) * 1e6 + (+m[2]), kuerzel: '', hinweis: '' };
+  if (!Array.isArray(personen) || !personen.length) return r;
+  const woerter = [...rest.matchAll(/[^\s_]+/g)];
+  for (let n = Math.min(3, woerter.length); n >= 1; n--){
+    const ende = maNorm(woerter.slice(-n).map(w => w[0]).join(''));
+    const p = personen.find(x => x && maNorm(x.ordnerKuerzel) === ende);
+    if (!p) continue;
+    r.kuerzel = String(p.ordnerKuerzel).trim();
+    r.ort = rest.slice(0, woerter[woerter.length - n].index).replace(/[\s_-]+$/, '');
+    if (!r.ort) r.hinweis = 'Im Ordnernamen fehlt der Ort.';
+    return r;
+  }
+  r.hinweis = rest ? 'Kein bekanntes Kürzel am Ende des Ordnernamens.' : 'Im Ordnernamen fehlen Ort und Kürzel.';
+  return r;
+}
+/* SPEKTRON-ORDNERNAME-ENDE */
+/* Mitarbeiterliste der Projektzentrale (<Archivordner>/_Spektron-Mitarbeiter.json) – hier nur lesen.
+   Ohne Datei, ohne Leserecht oder bei unbekanntem Format: null (dann Verhalten wie bisher). */
+const MA_FILE = '_Spektron-Mitarbeiter.json';
+async function maPersonenAus(archiv){
+  try{
+    if (!archiv || !archiv.getFileHandle) return null;
+    if (archiv.queryPermission && (await archiv.queryPermission({ mode: 'read' })) !== 'granted') return null;
+    const o = JSON.parse(await (await (await archiv.getFileHandle(MA_FILE)).getFile()).text());
+    return o && o.format === 'spektron-mitarbeiter' && Array.isArray(o.personen) ? o.personen.filter(p => p && typeof p.ordnerKuerzel === 'string' && p.ordnerKuerzel.trim()) : null;
+  }catch(e){ return null; }
+}
+/** „Ich bin …“ aus der Projektzentrale (gleicher Browser-Speicher) → App-Kürzel aus der Mitarbeiterliste, sonst ''. */
+function kuerzelVorschlag(personen){
+  try{
+    const ich = (localStorage.getItem('spektron-ich') || '').trim();
+    if (!ich) return '';
+    const p = (personen || []).find(x => x.aktiv !== false && maNorm(x.ordnerKuerzel) === maNorm(ich));   // inaktive Personen nie automatisch übernehmen
+    const k = p ? String(p.appKuerzel || '').trim() : '';
+    return /^[A-Za-zÄÖÜäöü]{1,6}$/.test(k) ? k.toUpperCase() : '';
+  }catch(e){ return ''; }
+}
+/** Auswahlliste der App-Kürzel für ein Eingabefeld (id der datalist). */
+function kuerzelAuswahl(id, personen){
+  let dl = document.getElementById(id);
+  if (!dl){ dl = document.createElement('datalist'); dl.id = id; document.body.appendChild(dl); }
+  dl.innerHTML = '';
+  for (const p of personen || []){
+    const k = String(p.appKuerzel || '').trim();
+    if (!k || p.aktiv === false) continue;
+    const o = document.createElement('option'); o.value = k.toUpperCase(); o.label = p.name || ''; dl.appendChild(o);
+  }
+}
+/** Ort ohne Kürzel, sobald die Mitarbeiterliste (A.personen) gelesen ist; sonst wie bisher. */
+const parseProj = n => { const r = leseProjektordner(n, A.personen); return r ? { nr: r.nr, ort: r.ort, key: r.key } : null; };
+async function personenLaden(){ A.personen = await maPersonenAus(A.archiv); kuerzelAuswahl('ma-kuerzel', A.personen); }
+/** Noch kein Kürzel? Dann das App-Kürzel zu „Ich bin …“ der Projektzentrale übernehmen – ein vorhandenes nie überschreiben. */
+function kuerzelAusZentrale(){
+  if (AW.kuerzelOk(A.kz)) return '';
+  const v = kuerzelVorschlag(A.personen);
+  if (!v || !AW.kuerzelOk(v)) return '';
+  A.kz = v; try{ localStorage.setItem('aufwandkit-kuerzel', v); localStorage.setItem(KZ_GEMEINSAM, v); }catch(e){}
+  if ($('kz')) $('kz').value = v;
+  return v;
+}
 const ORDNER = { abr: 'Abrechnung', lab: 'Laboraufträge', fotos: 'Fotos', mitteil: 'Mitteilungen' };
 const EINST_DATEI = '_AufwandKit-Einstellungen.json';
 const PROJ_DATEI = '_Abrechnung.json';
@@ -529,6 +600,7 @@ function zeigeStart(fall, name){
 }
 async function zeigeAuswahl(){
   knoepfe();
+  await personenLaden();
   const liste = [];
   for await (const h of A.archiv.values()) if (h.kind === 'directory'){ const p = parseProj(h.name); if (p) liste.push(Object.assign(p, { name: h.name })); }
   liste.sort((a, b) => b.key - a.key);
@@ -543,13 +615,16 @@ async function zeigeAuswahl(){
 async function oeffne(name){
   try{ await sichereMeine(); }catch(e){ return; }   // offene Eingaben gehören noch zum bisherigen Projekt
   let dir; try{ dir = await A.archiv.getDirectoryHandle(name); }catch(e){ meldung('err', `Projekt „${esc(name)}“ nicht gefunden in „${esc(A.archiv.name)}“.`); await zeigeAuswahl(); return; }
+  await personenLaden();
   const p = parseProj(name) || { nr: name, ort: '' };
   A.proj = { name, nr: p.nr, ort: p.ort, dir };
+  const kzNeu = kuerzelAusZentrale();
   try{ PROJEKT_URL.setzen(name); }catch(e){}
   try{ window.MosaikLeiste && MosaikLeiste.aktualisieren(); }catch(e){}
   document.title = `${p.nr} · ${APP_NAME}`;
   $('projekt').textContent = `${A.archiv.name} › ${name}`;
   await ladeAlles();
+  if (kzNeu) status(`Ihr Kürzel „${kzNeu}“ aus der Projektzentrale („Ich bin …“) übernommen – oben änderbar.`, 'ok');
 }
 
 /** Alles frisch lesen: Einstellungen, Zeiten aller Kollegen, LabelKit, Fotos, Berichte, Projektdatei. */
@@ -821,7 +896,7 @@ function personRolle(kz){ const p = (A.einst.personen || []).find(x => norm(x.ku
 function zeichneZeiten(){
   const s = $('seite');
   if (!AW.kuerzelOk(A.kz)){ s.innerHTML = `<div class="karte"><h2>Ihr Kürzel</h2><p>Jede Person trägt ihre eigenen Zeiten ein – gespeichert in einer eigenen Datei, damit sich niemand gegenseitig überschreibt.</p>
-    <div class="zeile"><input type="text" id="kzEin" maxlength="6" placeholder="z. B. SK" style="width:90px;text-transform:uppercase"><button class="primary" id="kzOk">Weiter</button></div></div>`;
+    <div class="zeile"><input type="text" id="kzEin" list="ma-kuerzel" maxlength="6" placeholder="z. B. SK" style="width:90px;text-transform:uppercase"><button class="primary" id="kzOk">Weiter</button></div></div>`;
     $('kzOk').onclick = () => { const v = $('kzEin').value.trim(); if (!AW.kuerzelOk(v)){ status('Kürzel: 1–6 Buchstaben', 'err'); return; } setzeKuerzel(v); }; $('kzEin').focus(); return; }
   const kz = A.kz.toUpperCase();
   s.innerHTML = `<div class="karte"><div class="kopfzeile"><h2>Meine Zeiten · ${esc(kz)}</h2><span class="m">gespeichert in <code>Abrechnung/Aufwand_${esc(kz)}.json</code></span></div>
