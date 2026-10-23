@@ -13,7 +13,8 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'));
 const PROJ = '26.0150 Teststadt Abc';
 const LISTE = {format: 'spektron-mitarbeiter', version: 1, personen: [
   {ordnerKuerzel: 'Abc', appKuerzel: 'AB', name: 'Anna Beispiel', aktiv: true},
-  {ordnerKuerzel: 'Dr. Te', appKuerzel: 'TE', name: 'Dr. Tea Test', aktiv: true}]};
+  {ordnerKuerzel: 'Dr. Te', appKuerzel: 'TE', name: 'Dr. Tea Test', aktiv: true},
+  {ordnerKuerzel: 'Alt', appKuerzel: 'ALT', name: 'Ehemalig', aktiv: false}]};
 
 (async () => {
   const server = http.createServer((req, res) => {
@@ -64,6 +65,11 @@ const LISTE = {format: 'spektron-mitarbeiter', version: 1, personen: [
     await oeffnen();
     assert.equal(await page.inputValue('#kz'), 'ZZ');
     assert.equal(await page.evaluate(() => localStorage.getItem('mosaik-kuerzel')), 'ZZ');
+
+    // 2b) „Ich bin“ zeigt auf eine inzwischen inaktive Person: kein automatisches Kürzel
+    await seed(LISTE, {'spektron-ich': 'Alt'});
+    await oeffnen();
+    assert.equal(await page.evaluate(() => localStorage.getItem('mosaik-kuerzel')), null);
 
     // 3) ohne Mitarbeiterliste: Ort wie bisher, kein Kürzel gesetzt
     await seed(null, {'spektron-ich': 'Abc'});
