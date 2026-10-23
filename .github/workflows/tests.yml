@@ -25,6 +25,7 @@ jobs:
           node-version: 24
       - run: node tests/logik.cjs
       - run: node tests/f4.cjs
+      - run: node tests/ordnername.cjs
 
   browser-tests:
     name: Browser tests (${{ matrix.browser }})
@@ -50,3 +51,5 @@ jobs:
         run: node tests/leiste-browser.cjs ${{ matrix.browser }}
       - name: F4 independent sessions, deterministic final-check races and recovery UI
         run: node tests/f4-browser.cjs ${{ matrix.browser }}
+      - name: Place without staff code and „Ihr Kürzel“ from the Projektzentrale
+        run: node tests/ort-kuerzel-browser.cjs ${{ matrix.browser }}
