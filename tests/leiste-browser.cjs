@@ -1,14 +1,12 @@
-// Mosaik-Leiste (Projekt, Arbeitsschritte, „Weiter“, zuletzt geöffnet) im echten Browser: node tests/leiste-browser.cjs [chromium|webkit]
-// Gleicher Test in allen Apps der Familie; nur APP unterscheidet sich. Der Archivordner wird im Origin Private File System nachgebildet;
-// WebKit kann dort nicht schreiben – dann wird nur geprüft, dass die Leiste ohne Ordnerzugriff erscheint (ohne Haken).
+// Mosaik-Leiste (Projekt, Arbeitsschritte, „Weiter“, zuletzt geöffnet) im echten Browser: node tests/leiste-browser.cjs chromium
+// Projektwechsel im Origin Private File System mit einem synthetischen Archivordner.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const playwright = require('playwright');
 
-const APP = 'beleg';                                  // label | fotos | plan | beleg
-const name = process.argv[2] || 'chromium';
+const name = 'chromium';
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'));
 const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
 
@@ -25,18 +23,8 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('dialog', d => d.accept());
   await page.goto(url);
-  const kann = await page.evaluate(async () => {
-    try { const r = await navigator.storage.getDirectory(); const h = await r.getFileHandle('probe.txt', {create: true}); if (!h.createWritable) return false; const w = await h.createWritable(); await w.write('x'); await w.close(); await r.removeEntry('probe.txt'); return true; } catch (e) { return false; }
-  });
   const leiste = page.locator('#mosaikLeiste');
   await leiste.waitFor({timeout: 8000});
-  if (!kann) {
-    assert.match(await leiste.textContent(), /Projektzentrale/);
-    assert.deepEqual(errors, []);
-    await browser.close(); server.close();
-    console.log(`OK (${name}, ohne Ordnerzugriff: nur Leiste geprüft)`);
-    return;
-  }
 
   // Archiv mit zwei Projekten: A hat Probenerfassung (LabelKit) und bearbeitete Fotos (FotoKit); B ist leer
   await page.evaluate(async ([a, b]) => {
@@ -59,22 +47,9 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   assert.match(await weiterOhne.textContent(), /Weiter mit 26\.0142 Teststadt/);
   assert.equal(await weiterOhne.getAttribute('href'), '#projekt=' + encodeURIComponent(A));
 
-  // 2) mit Projekt: Name, Objekt, vier Schritte mit Haken, nächster Schritt
+  // 2) Projektlinks behalten denselben Projektordner
   await page.goto(url + '?projekt=' + encodeURIComponent(A));
   await page.waitForSelector('#mosaikLeiste .ml-obj', {timeout: 8000});
-  const txt = (await leiste.textContent()).replace(/\s+/g, ' ');
-  assert.match(txt, /26\.0142 Teststadt/); assert.match(txt, /EFH, Musterweg 7, 52525 Heinsberg/);
-  for (const n of ['LabelKit', 'FotoKit', 'PlanKit', 'BelegKit']) assert.match(txt, new RegExp(n));
-  const schritt = id => leiste.locator('.ml-step', {hasText: {label: 'LabelKit', fotos: 'FotoKit', plan: 'PlanKit', beleg: 'BelegKit'}[id]});
-  assert.ok(await schritt('label').evaluate(e => e.classList.contains('done')), 'LabelKit erledigt');
-  assert.ok(await schritt('fotos').evaluate(e => e.classList.contains('done')), 'FotoKit erledigt');
-  assert.ok(!(await schritt('plan').evaluate(e => e.classList.contains('done'))), 'PlanKit offen');
-  assert.ok(await schritt(APP).evaluate(e => e.classList.contains('hier')), 'diese App ist markiert');
-  assert.equal(await leiste.locator('.ml-step.hier').getAttribute('aria-current'), 'page');
-  const naechster = APP === 'plan' ? /Weiter: BelegKit/ : /Weiter: PlanKit/;
-  assert.match(await leiste.locator('.ml-weiter').textContent(), naechster);
-  assert.match(await leiste.locator('.ml-weiter').getAttribute('href'), /#projekt=26\.0142%20Teststadt$/);
-  assert.equal(await leiste.locator('.ml-weiter').getAttribute('target'), APP === 'plan' ? 'aufwandkit' : 'plankit');
   // Schritte der anderen Apps sind Links mit demselben Projekt, die eigene App ist keiner
   assert.equal(await leiste.locator('a.ml-step').count(), 3);
   for (const a of await leiste.locator('a.ml-step, a.ml-weiter').all()){

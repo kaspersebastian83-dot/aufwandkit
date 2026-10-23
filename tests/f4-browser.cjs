@@ -1,7 +1,7 @@
-// Independent Chromium/WebKit storage partitions, real UI, shared synthetic disk.
+// Independent Chromium storage partitions, real UI, shared synthetic disk.
 // Deterministic barriers at file creation and AFTER the last compare, before write.
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path'),http=require('node:http'),pw=require('playwright');
-const root=path.resolve(__dirname,'..'),engine=process.argv[2]||'chromium',PROJECT='26.0101 Fiktives Projekt',FILE='Aufwand_SK.json';
+const root=path.resolve(__dirname,'..'),engine='chromium',PROJECT='26.0101 Fiktives Projekt',FILE='Aufwand_SK.json';
 const entry=(id,h='1')=>({id,datum:'2026-10-21',art:'ort',rolle:'Sachverständiger',stunden:h,km:'4',spesen:'1',hotelAnzahl:'',hotelBetrag:'',notiz:'synthetisch'});
 const initial={format:'aufwandkit-zeiten',version:1,projekt:'26.0101',kuerzel:'SK',eintraege:[entry('old-1'),entry('old-2')],unknown:{preserve:true}};
 const defer=()=>{let resolve;const promise=new Promise(r=>resolve=r);return{resolve,promise};};

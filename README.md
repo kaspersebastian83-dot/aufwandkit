@@ -50,12 +50,21 @@ Gelesen (nie geschrieben): `Laboraufträge/…_Daten.json` (LabelKit), `Fotos/_B
 
 ## Tests
 
-```
+```bash
 node tests/logik.cjs
 node tests/f4.cjs
-NODE_PATH=… node tests/f4-browser.cjs chromium   # ebenfalls webkit; unabhängige Sitzungen, synthetische Dateibrücke
-NODE_PATH=… node tests/browser.cjs chromium   # braucht Playwright (nicht im Repository)
-NODE_PATH=… node tests/leiste-browser.cjs chromium   # Leiste mit Projekt, Arbeitsschritten und „Weiter“
+NODE_PATH=… node tests/browser.cjs chromium
+NODE_PATH=… node tests/leiste-browser.cjs chromium
+NODE_PATH=… node tests/f4-browser.cjs chromium
 ```
 
-`tests/leiste-browser.cjs` prüft die gemeinsame Leiste (gleicher Test wie in LabelKit, FotoKit und PlanKit). `tests/logik.cjs` rechnet unter anderem die Beispielrechnung 202600542 nach (Titel 1: 8.166,83 €, Titel 2: 6.570,00 €, netto 15.988,23 €). Der Browsertest bildet einen Projektordner im Origin Private File System nach (LabelKit-Datei, Fotos, Bericht als Word mit veralteter Seitenzahl und als PDF) und prüft Erfassung, Zuordnung, Seitenzahl, Abrechnung, Kopieren und „Stand speichern“; mit `SHOTS=<Ordner>` entstehen Bildschirmfotos. Alle Tests laufen bei jedem Pull Request auf GitHub (Browsertests in Chromium und WebKit).
+Die Browsertests verwenden die bestehende Playwright-Version 1.56.1 (nicht im Repository)
+mit Chromium. `NODE_PATH` zeigt auf deren `node_modules`-Ordner.
+`tests/logik.cjs` prüft Berechnung und Dateiformate; `tests/browser.cjs` durchläuft
+Erfassung, Quellenübernahme, Abrechnung, Kopieren und Speichern einschließlich
+Lesefehlern und Schutz vor stillen Überschreibungen. `tests/leiste-browser.cjs`
+prüft Projektlinks und abgebrochene Projektwechsel. Die beiden F4-Tests erhalten
+bestätigte Zeitdaten bei parallelen Sitzungen, Speicherfehlern und Wiederherstellung.
+Alle fünf Tests laufen in einem einzigen GitHub-Workflow (`tests.yml`) auf
+`ubuntu-24.04`, ausschließlich mit Chromium. Es gibt keine separate
+repoübergreifende Integrationssuite und keine Browser-Matrix mehr.

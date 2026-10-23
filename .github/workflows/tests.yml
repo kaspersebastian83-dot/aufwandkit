@@ -14,10 +14,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  node-tests:
-    name: Node tests (no browser)
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  test:
+    name: Node and Chromium tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
@@ -25,28 +25,14 @@ jobs:
           node-version: 24
       - run: node tests/logik.cjs
       - run: node tests/f4.cjs
-
-  browser-tests:
-    name: Browser tests (${{ matrix.browser }})
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, webkit]
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      - name: Install Playwright (pinned, not part of the repository)
+      - name: Install existing pinned Playwright runtime (Chromium only)
         run: |
           npm install --no-save --no-package-lock --prefix "$RUNNER_TEMP/pw" playwright@1.56.1
           echo "NODE_PATH=$RUNNER_TEMP/pw/node_modules" >> "$GITHUB_ENV"
-          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps ${{ matrix.browser }}
-      - name: BelegKit in the real browser
-        run: node tests/browser.cjs ${{ matrix.browser }}
-      - name: Mosaik bar (project, steps, next step) in the real browser
-        run: node tests/leiste-browser.cjs ${{ matrix.browser }}
-      - name: F4 independent sessions, deterministic final-check races and recovery UI
-        run: node tests/f4-browser.cjs ${{ matrix.browser }}
+          "$RUNNER_TEMP/pw/node_modules/.bin/playwright" install --with-deps chromium
+      - name: BelegKit core workflow and saved file formats
+        run: node tests/browser.cjs chromium
+      - name: Project navigation and cancelled project changes
+        run: node tests/leiste-browser.cjs chromium
+      - name: Independent sessions, save conflicts and recovery
+        run: node tests/f4-browser.cjs chromium

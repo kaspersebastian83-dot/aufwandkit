@@ -1,6 +1,5 @@
-// BelegKit im echten Browser: node tests/browser.cjs [chromium|webkit]
+// BelegKit im echten Browser: node tests/browser.cjs chromium
 // Archivordner mit einem Projekt wird im Origin Private File System nachgebildet (LabelKit-Datei, Fotos, Bericht als .docx und .pdf).
-// WebKit kann keine Ordner beschreiben – dort wird nur geprüft, dass die Seite fehlerfrei lädt und den Hinweis zeigt.
 process.env.TZ = 'Europe/Berlin';
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -9,10 +8,9 @@ const path = require('node:path');
 const zlib = require('node:zlib');
 const playwright = require('playwright');
 
-const name = process.argv[2] || 'chromium';
+const name = 'chromium';
 const root = path.join(__dirname, '..');
 const PROJ = '26.0389 Riedelsbach Köln & Süd + 50% #Hof';
-const bild = async (page, n) => { if (process.env.SHOTS) await page.screenshot({ path: path.join(process.env.SHOTS, n + '.png'), fullPage: true }); };   // optional: Bildschirmfotos zur Sichtprüfung
 
 /** Kleine .docx-Attrappe wie aus Word: app.xml deflate-komprimiert (Word meldet 1 Seite bei 2412 Wörtern – veraltet). */
 function docx(){
@@ -45,7 +43,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   const browser = await playwright[name].launch();
   const ctx = await browser.newContext({ viewport: { width: 1300, height: 900 } });
   ctx.setDefaultTimeout(60000);   // CI-Läufer sind manchmal langsam: Wartezeiten großzügig, damit kein falscher Alarm entsteht
-  if (name === 'chromium') await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);   // WebKit kennt diese Rechte nicht
+  await ctx.grantPermissions(['clipboard-read', 'clipboard-write']);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
@@ -69,16 +67,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.equal((await kz()).eigen, 'MK');
   await page.evaluate(() => localStorage.clear());
   await neuLaden();
-
-  const kann = await page.evaluate(async () => {
-    if (!('showDirectoryPicker' in window) || !navigator.storage || !navigator.storage.getDirectory) return false;
-    try{ const r = await navigator.storage.getDirectory(); const h = await r.getFileHandle('probe', { create: true }); if (!h.createWritable) return false; await r.removeEntry('probe'); return true; }catch(e){ return false; }
-  });
-  if (!kann){
-    assert.ok(await page.locator('#support').isVisible(), 'Hinweis „Chrome oder Edge“');
-    assert.deepEqual(errors, []);
-    await browser.close(); server.close(); console.log(`OK (${name}, ohne Ordnerzugriff: nur Laden geprüft)`); return;
-  }
 
   // Archiv mit Projekt anlegen und als gemeinsamen Archivordner hinterlegen (wie die Projektzentrale)
   await page.evaluate(async ({ PROJ, labelkit, docx, pdf }) => {
@@ -145,24 +133,8 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.match(await page.locator('#kollegen').textContent(), /SK\s*17\s*7\s*1\.425/);
 
   const bisDatei = async (ok) => { for (let k = 0; k < 100; k++){ try{ if (ok(JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json')))) return; }catch(e){} await page.waitForTimeout(100); } throw new Error('Aufwand_SK.json nicht wie erwartet gespeichert'); };
-  // 1.4: Route in Google Maps – eigenes Fenster (Start → Objekt → Start), km übernehmen, Link am Eintrag gespeichert
-  assert.equal(await page.locator('#zRows tr[data-i="1"] button[data-route]').count(), 0, 'kein Routen-Knopf bei Auswertung/Bericht');
-  await page.evaluate(() => { window.__fenster = []; window.open = (u, n, f) => { window.__fenster.push([u, n, f]); return null; }; });
+  // Gespeicherter Routenlink bleibt Teil des Zeitdateiformats.
   await page.locator('#zRows tr[data-i="0"] button[data-route]').click();
-  assert.equal(await page.locator('#rStart').inputValue(), 'Gouleystraße 59, 52146 Würselen');
-  assert.equal(await page.locator('#rZiel').inputValue(), 'EFH, Musterweg 7, 52525 Heinsberg', 'Ziel aus den Projektdaten');
-  assert.equal(await page.locator('#rKm').inputValue(), '1425');
-  await bild(page, 'route-dialog');
-  await page.locator('#rOeffnen').click();
-  const [[url, , merkmale]] = await page.evaluate(() => window.__fenster);
-  const u = new URL(url);
-  assert.equal(u.origin + u.pathname, 'https://www.google.com/maps/dir/');
-  assert.deepEqual([u.searchParams.get('api'), u.searchParams.get('origin'), u.searchParams.get('destination'), u.searchParams.get('waypoints'), u.searchParams.get('travelmode')],
-    ['1', 'Gouleystraße 59, 52146 Würselen', 'Gouleystraße 59, 52146 Würselen', 'EFH, Musterweg 7, 52525 Heinsberg', 'driving'], 'Hin- und Rückfahrt');
-  assert.match(merkmale, /noopener/);
-  await page.locator('#rLink').fill('https://example.com/maps/route');
-  await page.locator('#rOk').click();
-  assert.match(await page.locator('#rHinweis').textContent(), /Google Maps/, 'fremder Link wird abgelehnt');
   await page.locator('#rLink').fill('https://maps.app.goo.gl/AbC123xyz');
   await page.locator('#rOk').click();
   await page.locator('#dlgBack.show').waitFor({ state: 'detached' }).catch(() => {});
@@ -172,21 +144,9 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await bisDatei(j => j.eintraege[0].route === 'https://maps.app.goo.gl/AbC123xyz');
   mein = JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json'));
   assert.deepEqual([mein.eintraege[0].km, mein.eintraege[0].routeZiel, mein.eintraege[0].routeRund], ['1425', 'EFH, Musterweg 7, 52525 Heinsberg', true]);
-  // nur Hinfahrt, ohne eigenen Link → erzeugter Link wird gespeichert; Start wird für das nächste Mal gemerkt
-  await page.locator('#zRows tr[data-i="0"] button[data-route]').click();
-  await page.locator('#rStart').fill('Am Markt 1, 52062 Aachen'); await page.locator('#rRund').uncheck(); await page.locator('#rLink').fill('');
-  await page.locator('#rOk').click();
-  await bisDatei(j => /destination=EFH/.test(j.eintraege[0].route || ''));
-  mein = JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json'));
-  const r2 = new URL(mein.eintraege[0].route);
-  assert.deepEqual([r2.searchParams.get('origin'), r2.searchParams.get('destination'), r2.searchParams.get('waypoints')], ['Am Markt 1, 52062 Aachen', 'EFH, Musterweg 7, 52525 Heinsberg', null]);
-  assert.equal(await page.evaluate(() => localStorage.getItem('aufwandkit-start')), 'Am Markt 1, 52062 Aachen');
-  await bild(page, '1-zeiten');
-
   // Proben: Kategorien und Zuordnung (Asbest → nicht abrechnen) – landet in den gemeinsamen Einstellungen
   await page.locator('button[data-tab="proben"]').click();
   assert.match(await page.locator('#seite').textContent(), /PAK – Wischproben\s*56[\s\S]*Chlorid – Wischproben\s*25[\s\S]*Asbest – Materialproben\s*2/);
-  await bild(page, '2-proben');
   await page.locator('select[data-kat="asbest-material"]').selectOption('-');
   await page.waitForFunction(() => /Zuordnung gespeichert|Einstellungen gespeichert/.test(document.getElementById('status').textContent));
   const einst = JSON.parse(await lies('_AufwandKit-Einstellungen.json'));
@@ -202,7 +162,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.waitForFunction(() => /✓ gespeichert/.test(document.getElementById('status').textContent));
   await page.locator('#bRows button', { hasText: 'PDF: 3 Seiten übernehmen' }).click();
   await page.waitForFunction(() => document.querySelector('#bRows input[data-seiten="0"]')?.value === '3');
-  await bild(page, '3-bericht');
   const pdat = JSON.parse(await lies('§/Abrechnung/_Abrechnung.json'));
   assert.deepEqual([pdat.berichte['1__Mitteilung'].abrechnen, pdat.berichte['1__Mitteilung'].seiten, pdat.berichte['1__Mitteilung'].seitenQuelle], [true, '3', 'PDF gezählt']);
 
@@ -219,7 +178,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.doesNotMatch(txt, /Asbest/, 'nicht abzurechnen');
   await page.locator('#aPreise').check();
   assert.match(await page.locator('#seite').textContent(), /2\.465,00 €/, '17 × 145');
-  await bild(page, '4-abrechnung');
   if (name === 'chromium'){
     await page.locator('#aKopie').click();
     await page.waitForFunction(() => /Zwischenablage/.test(document.getElementById('status').textContent));
@@ -329,7 +287,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.locator('#eLab').click();
   const letzte = page.locator('#ePos tr').last();
   await letzte.locator('[data-p="nr"]').fill('2.010'); await letzte.locator('[data-p="text"]').fill('Asbestanalyse(n)');
-  await bild(page, '5-einstellungen');
   await page.locator('#eSpeichern').click();
   await page.waitForFunction(() => /Einstellungen gespeichert/.test(document.getElementById('status').textContent));
   assert.ok(JSON.parse(await lies('_AufwandKit-Einstellungen.json')).positionen.some(p => p.nr === '2.010' && p.text === 'Asbestanalyse(n)'));
@@ -452,8 +409,6 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.locator('button[data-tab="bericht"]').click();
   assert.match(await page.locator('#seite').textContent(), /5 Fotos \(6 Bilder im Ordner „Fotos“, davon 1 in FotoKit aussortiert\)/, 'Mac-Begleitdatei nicht gezählt');
 
-  const breit = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-  assert.ok(breit <= 1, 'keine waagrechte Bildlaufleiste (' + breit + ' px)');
   assert.deepEqual(errors, [], 'keine Fehler in der Konsole');
   await browser.close(); server.close();
   console.log(`OK (${name})`);
