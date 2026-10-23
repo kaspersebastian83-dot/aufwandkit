@@ -58,4 +58,6 @@ NODE_PATH=… node tests/browser.cjs chromium   # braucht Playwright (nicht im R
 NODE_PATH=… node tests/leiste-browser.cjs chromium   # Leiste mit Projekt, Arbeitsschritten und „Weiter“
 ```
 
+GitHub führt die Tests bei jedem Pull Request aus (`.github/workflows/tests.yml`, Chromium). Es gibt nur diesen einen Test-Workflow; zusätzliche Kompatibilitäts- und Integrations-Workflows wurden am 23.10.2026 entfernt.
+
 `tests/leiste-browser.cjs` prüft die gemeinsame Leiste (gleicher Test wie in LabelKit, FotoKit und PlanKit). `tests/logik.cjs` rechnet unter anderem die Beispielrechnung 202600542 nach (Titel 1: 8.166,83 €, Titel 2: 6.570,00 €, netto 15.988,23 €). Der Browsertest bildet einen Projektordner im Origin Private File System nach (LabelKit-Datei, Fotos, Bericht als Word mit veralteter Seitenzahl und als PDF) und prüft Erfassung, Zuordnung, Seitenzahl, Abrechnung, Kopieren und „Stand speichern“; mit `SHOTS=<Ordner>` entstehen Bildschirmfotos. Alle Tests laufen bei jedem Pull Request auf GitHub (Browsertests in Chromium und WebKit).
