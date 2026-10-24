@@ -425,9 +425,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.6.2';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.6.2', '24.10.2026', 'Leiste oben in allen Apps wieder identisch (FotoKit-Projektzuordnung und offenes Menü wie in FotoKit, aktuelle Projektdaten wie in LabelKit/PlanKit); Speicherkandidaten und Kopien von PlanKit zählen nicht als Plan.'],
   ['1.6.1', '24.10.2026', 'Bohrkern-Rückstellproben aus LabelKit (nur gesägt und aufbewahrt) werden nicht mehr als Analyse gezählt; ein Hinweis nennt ihre Anzahl. Neuer Hinweis, wenn PN-98-Protokolle keine verknüpfte Laborprobe haben, auch wenn es andere sonstige Proben gibt. PlanKit-Anlagen und Raumbuch in „Mitteilungen“ sind als Anlage markiert.'],
   ['1.6.0', '23.10.2026', 'Projektordner „26.0123 Köln Nad“: Mit der Mitarbeiterliste der Projektzentrale steht der Ort ohne Kürzel (Projektauswahl, Abrechnung, Routenziel). „Ihr Kürzel“: Ist noch keines gespeichert und wurde in der Projektzentrale „Ich bin …“ gewählt, übernimmt BelegKit beim Öffnen eines Projekts das App-Kürzel aus der Mitarbeiterliste; ein vorhandenes Kürzel wird nie überschrieben. Das Kürzelfeld bietet die Kürzel der Liste zur Auswahl an.'],
   ['1.5.0', '23.10.2026', 'Die Spektron-Leiste oben zeigt „Nr. Ort · zuständige Person“: Liegt im Archivordner die Mitarbeiterliste der Projektzentrale, wird das Kürzel am Ende des Projektordners erkannt und mit Namen angezeigt; eine in der Projektzentrale abweichend gewählte Person hat Vorrang.'],
@@ -1167,7 +1168,9 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
    Teilt sich mit den anderen Apps nur den Browser-Speicher: IndexedDB „mosaik-suite“ / „kv“, Schlüssel „archiv“ (Ordner-Handle)
    und „zuletzt“ (Liste der zuletzt geöffneten Projektnamen). Liest den Ordner nur, schreibt nie hinein und fragt nie selbst
    nach Ordnerrechten – ohne Recht (oder ohne Ordnerzugriff, z. B. Safari) fehlen nur die Haken. Aufruf: MosaikLeiste.start('label'|'fotos'|'plan'|'beleg'[, {kompakt: true}]),
-   danach MosaikLeiste.aktualisieren() nach dem Öffnen oder Wechseln eines Projekts. */
+   danach MosaikLeiste.aktualisieren() nach dem Öffnen oder Wechseln eines Projekts.
+   Optional opt.projektName: Funktion, die die bestätigte Projektzuordnung statt der angeforderten URL liefert (FotoKit).
+   Projektdaten: window.SpektronProjectData (LabelKit, PlanKit) liefert den aktuellen Stand samt „möglicherweise veraltet“; sonst _Projekt.json direkt. */
 (function(){
   if (window.MosaikLeiste) return;
   var APPS = [
@@ -1177,7 +1180,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     ['beleg', 'BelegKit',  'aufwandkit',     '../aufwandkit/',     '#2f7d6d']
   ];
   var ZENTRALE = '../Projektzentrale/', MAX = 6;
-  var ich = '', kompakt = false, name = '', stand = null, zuletzt = [], bar = null, pop = null, timer = 0, lauf = 0;
+  var ich = '', kompakt = false, projektName = null, name = '', stand = null, zuletzt = [], bar = null, pop = null, timer = 0, lauf = 0;
   var nfc = function(s){ try{ return String(s).normalize('NFC'); }catch(e){ return String(s); } };
   /* Kurzfassung von SPEKTRON-ORDNERNAME v1 (Projektzentrale): Kürzel am Ende des Ordnernamens anhand der Mitarbeiterliste */
   var maNorm = function(x){ return nfc(x == null ? '' : x).toLowerCase().replace(/[\s.]+/g, ''); };
@@ -1259,7 +1262,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       catch(e){ res(false); }
     }); });
   }
-  function urlName(){ try{ return new URLSearchParams(location.hash.slice(1)).get('projekt') ?? new URLSearchParams(location.search).get('projekt') ?? ''; }catch(e){ return ''; } }
+  function urlName(){ try{ return projektName ? projektName() || '' : new URLSearchParams(location.hash.slice(1)).get('projekt') ?? new URLSearchParams(location.search).get('projekt') ?? ''; }catch(e){ return ''; } }
   function href(app, projekt){ return (app[0] === ich ? '' : app[3]) + (projekt ? '#projekt=' + encodeURIComponent(projekt) : ''); }   // die eigene App relativ zur aktuellen Seite (auch ohne den Pfad /<App>/)
 
   /* Ordnerstand: nur Namen prüfen, Fotos nur über die eine Datei (der Ordner kann tausende Bilder enthalten) */
@@ -1281,7 +1284,9 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     }
     if (!proj) return null;
     var s = { label: false, fotos: false, plan: false, beleg: false, objekt: '', anzeige: '', person: '' }, zust = null;
-    try{
+    var activeData = window.SpektronProjectData && window.SpektronProjectData(name);
+    if (activeData){ var activeObjekt = typeof activeData.data.objekt === 'string' ? activeData.data.objekt : activeData.data.daten && activeData.data.daten.objekt; if (typeof activeObjekt === 'string') s.objekt = activeObjekt.trim(); zust = activeData.data.zustaendig; }
+    else try{
       var pj = await proj.getFileHandle('_Projekt.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); }).catch(function(){ return ''; });
       if (pj){ var j = JSON.parse(pj), o = j && (typeof j.objekt === 'string' ? j.objekt : j.daten && j.daten.objekt); if (typeof o === 'string') s.objekt = o.trim(); zust = j && j.zustaendig; }   // Projektzentrale schreibt die Felder direkt in _Projekt.json (ältere Testdateien: unter „daten“)
     }catch(e3){}
@@ -1293,7 +1298,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     }catch(e5){}
     try{
       var pl = await unterordner(proj, 'Pläne');
-      if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung) [^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
+      if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
     }catch(e6){}
     try{
       var ab = await unterordner(proj, 'Abrechnung');
@@ -1370,8 +1375,12 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       var pb = h('button', { class: 'ml-proj', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Anderes Projekt öffnen' }, h('b', { text: (stand && stand.anzeige) || name, title: name }), h('span', { text: '▾', 'aria-hidden': 'true' }));
       pb.onclick = function(ev){ ev.stopPropagation(); oeffnePop(pb); };
       bar.appendChild(pb);
+      var shared = window.SpektronProjectData && window.SpektronProjectData(name);
+      var sharedObjekt = shared && (typeof shared.data.objekt === 'string' ? shared.data.objekt : shared.data.daten && shared.data.daten.objekt);
+      var objekt = shared ? (typeof sharedObjekt === 'string' ? sharedObjekt.trim() : '') : stand && stand.objekt;
+      var suffix = shared && shared.stale ? ' · möglicherweise veraltet' : shared && shared.checking ? ' · wird geprüft' : '';
       if (stand && stand.person) bar.appendChild(h('span', { class: 'ml-obj ml-wer', text: '· ' + stand.person, title: 'Zuständig: ' + stand.person }));
-      if (stand && stand.objekt) bar.appendChild(h('span', { class: 'ml-obj', text: stand.objekt, title: stand.objekt }));
+      if (objekt) bar.appendChild(h('span', { class: 'ml-obj', text: objekt + suffix, title: objekt + suffix }));
       bar.appendChild(h('span', { class: 'ml-sp' }));
       var steps = h('span', { class: 'ml-steps' });
       var nx = naechster();
@@ -1402,8 +1411,10 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     }
   }
   async function aktualisieren(){
-    if (pop) return;   // Menü offen: nicht neu zeichnen (würde es schließen); der nächste Durchlauf holt das nach
-    var mein = ++lauf, n = urlName();
+    var n = urlName();
+    if (pop && n === name) return;   // Menü offen und Projekt unverändert: nicht neu zeichnen (würde es schließen)
+    if (pop) schliessePop();
+    var mein = ++lauf;
     if (n !== name){ name = n; stand = null; }
     try{ zuletzt = (await kvGet('zuletzt')) || []; if (!Array.isArray(zuletzt)) zuletzt = []; }catch(e){ zuletzt = []; }
     if (name && nfc(zuletzt[0] || '') !== nfc(name)){
@@ -1420,6 +1431,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
   }
   function start(appId, opt){
     ich = appId; kompakt = !!(opt && opt.kompakt);
+    projektName = opt && typeof opt.projektName === 'function' ? opt.projektName : null;
     var los = function(){
       aktualisieren();
       window.addEventListener('focus', aktualisieren);
