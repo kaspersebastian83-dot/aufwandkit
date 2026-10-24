@@ -46,6 +46,12 @@ assert.equal(K.filter(x => x.key.startsWith('sonstige:') && x.key.includes(' + '
   assert.equal(k3('sonstige:depv:misch'), 1, 'DepV-Mischprobe bleibt eigene Kategorie, PAK der Mischprobe zählt bei PAK');
   assert.equal(K3.length, 4);
 }
+{ // Kommas im Stoffnamen trennen nicht (Review): 1,2-Dichlorethan, 2,4,6-Trinitrotoluol; „PCB,PAK“ ohne Leerzeichen trennt weiter
+  const K4 = AW.kategorien({ sonstigeProben: [
+    { matrix: 'Feststoff', notiz: '1,2-Dichlorethan, 2,4,6-Trinitrotoluol', z2: 'Keller' },
+    { matrix: 'Feststoff', notiz: 'PCB,PAK', z2: 'Keller' }] });
+  assert.deepEqual([...K4.map(x => x.key)].sort().join('|'), ['sonstige:1,2-dichlorethan', 'sonstige:2,4,6-trinitrotoluol', 'sonstige:pak', 'sonstige:pcb'].join('|'));
+}
 assert.equal(k('sonstige-ohne'), 1);
 assert.equal(K.find(x => x.key === 'sonstige-ohne').ohneBezeichnung, 1);
 assert.equal(k('brandgeruch'), 5);
