@@ -224,6 +224,16 @@ const AW = (() => {
      Je Liste eine Analyse; Einteilung wie LabelKits Textbausteine (Wischprobe ↔ Material, DepV-Mischprobe, Parameter der sonstigen Proben). */
   const ASBEST_KEIN_MATERIAL = ['wischprobe', 'wasser', 'luft (raumluft)', 'sonstige'];
   const paramKey = v => [...new Set(str(v).split(/[;,\n+]+/).map(x => x.replace(/\s+/g, ' ').trim().toLocaleLowerCase('de-DE')).filter(Boolean))].sort().join(' + ');
+  /* Bohrkern-Segment „R“ (LabelKit): nur gesägt und aufbewahrt – keine Analyse, wird nicht gezählt. */
+  const RUECKSTELLPROBE = 'Rückstellprobe – nicht analysieren';
+  const rueckstell = p => !!p && p.matrix === 'Bohrkern' && (t(p.bkStatus).toUpperCase() === 'R' || t(p.notiz) === RUECKSTELLPROBE);
+  /** Kennzahlen der LabelKit-Datei für Hinweise: PN-98-Protokolle, sonstige Proben, PN-98 ohne verknüpfte Laborprobe, Rückstellproben. */
+  function labelkitInfo(daten){
+    const d = daten && typeof daten === 'object' ? daten : {}, L = n => Array.isArray(d[n]) ? d[n].filter(p => p && typeof p === 'object') : [];
+    const quellen = new Set(L('sonstigeProben').map(p => t(p.pn98Quelle)).filter(Boolean));
+    return { pn98: L('pn98Proben').length, sonstige: L('sonstigeProben').length,
+      pn98OhneProbe: L('pn98Proben').filter(p => !quellen.has(t(p.id))).length, rueckstell: L('sonstigeProben').filter(rueckstell).length };
+  }
   function kategorien(daten){
     const d = daten && typeof daten === 'object' ? daten : {}, k = new Map();
     /* „ohne Bezeichnung“ wie LabelKits eigene Prüfung: Raum/Ort (z2), bei Bohrkernen die BK-Bezeichnung */
@@ -239,6 +249,7 @@ const AW = (() => {
     L('asbestProben').forEach(p => ASBEST_KEIN_MATERIAL.includes(t(p.matrix).toLocaleLowerCase('de-DE')) || !t(p.matrix)
       ? add('asbest-sonstige', 'Asbest – ' + (t(p.matrix) || 'ohne Matrix'), p) : add('asbest-material', 'Asbest – Materialproben', p));
     L('sonstigeProben').forEach(p => {
+      if (rueckstell(p)) return;
       const par = paramKey(p.notiz), misch = /\bmischprobe\b/i.test(str(p.matrix));
       if (!par) return add('sonstige-ohne', 'Sonstige Proben ohne Untersuchungsparameter', p);
       const depv = /\bdepv\b|deponieverordnung/i.test(par);
@@ -343,6 +354,8 @@ const AW = (() => {
     }
     for (const [key, e] of jePos) zeile(key, e.menge, 'LabelKit: ' + e.teile.join(', '));
     const lk = o.labelkit || {};
+    if (lk.rueckstell) hinweise.push(`LabelKit: ${lk.rueckstell} Bohrkern-Rückstellprobe${lk.rueckstell === 1 ? '' : 'n'} (nur gesägt und aufbewahrt) nicht als Analyse gezählt.`);
+    if (lk.pn98 && lk.sonstige && lk.pn98OhneProbe) hinweise.push(`LabelKit: ${lk.pn98OhneProbe} von ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'en'} ohne verknüpfte Laborprobe („→ Laborproben anlegen“ im Reiter PN 98) – PN-98-Protokolle selbst werden nicht gezählt. Sind diese Proben von Hand unter „Sonstige“ erfasst, passt es.`);
     if (lk.pn98 && !lk.sonstige) hinweise.push(`LabelKit: ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'e'}, aber keine Proben unter „Sonstige“ – PN-98-Protokolle selbst werden nicht als Analyse gezählt. Sind die Laborproben in LabelKit erfasst?`);
     zeile('sv3', s.sv3, 'Zeiten (Auswertung / Bericht)'); zeile('pn3', s.pn3, 'Zeiten (Auswertung / Bericht)');
     // 3.002: Seiten und Fotos
@@ -407,14 +420,15 @@ const AW = (() => {
   const kuerzelOk = k => /^[A-Za-zÄÖÜäöü]{1,6}$/.test(t(k));
   /** Zählt als Foto: Bilddatei, aber keine versteckte Datei („._IMG.jpg“ vom Mac, „.~…“) und keine Zwischendatei von FotoKit („umb-tmp_…“). */
   const fotoDatei = n => /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(str(n)) && !/^(\.|~|umb-tmp_)/i.test(str(n));
-  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, zeiten, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
+  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, labelkitInfo, zeiten, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
 })();
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.6.1', '24.10.2026', 'Bohrkern-Rückstellproben aus LabelKit (nur gesägt und aufbewahrt) werden nicht mehr als Analyse gezählt; ein Hinweis nennt ihre Anzahl. Neuer Hinweis, wenn PN-98-Protokolle keine verknüpfte Laborprobe haben, auch wenn es andere sonstige Proben gibt. PlanKit-Anlagen und Raumbuch in „Mitteilungen“ sind als Anlage markiert.'],
   ['1.6.0', '23.10.2026', 'Projektordner „26.0123 Köln Nad“: Mit der Mitarbeiterliste der Projektzentrale steht der Ort ohne Kürzel (Projektauswahl, Abrechnung, Routenziel). „Ihr Kürzel“: Ist noch keines gespeichert und wurde in der Projektzentrale „Ich bin …“ gewählt, übernimmt BelegKit beim Öffnen eines Projekts das App-Kürzel aus der Mitarbeiterliste; ein vorhandenes Kürzel wird nie überschrieben. Das Kürzelfeld bietet die Kürzel der Liste zur Auswahl an.'],
   ['1.5.0', '23.10.2026', 'Die Spektron-Leiste oben zeigt „Nr. Ort · zuständige Person“: Liegt im Archivordner die Mitarbeiterliste der Projektzentrale, wird das Kürzel am Ende des Projektordners erkannt und mit Namen angezeigt; eine in der Projektzentrale abweichend gewählte Person hat Vorrang.'],
   ['1.4.1', '20.10.2026', 'Projektzentrale und Spektron-Leiste übergeben Projekte jetzt über #projekt im Fragment. Sonderzeichen bleiben erhalten; alte ?projekt-Links funktionieren weiterhin und werden nach dem Laden bereinigt. Projektwechsel laden auch bereits geöffnete App-Fenster neu; eine Warnung vor ungesicherten Eingaben kann den Wechsel abbrechen.'],
@@ -687,7 +701,7 @@ async function ladeAlles(){
       const stamm = h.name.replace(/\.(docx?|pdf)$/i, ''), e = st.get(stamm) || { stamm, dateien: [] }; e.dateien.push(h); st.set(stamm, e);
     }
     for (const e of [...st.values()].sort((a, b) => a.stamm.localeCompare(b.stamm, 'de', { numeric: true }))){
-      const b = { stamm: e.stamm, dateien: e.dateien.map(h => h.name), word: null, pdf: null, anlage: /_Anlage-/i.test(e.stamm) };
+      const b = { stamm: e.stamm, dateien: e.dateien.map(h => h.name), word: null, pdf: null, anlage: /_(Anlage|Raumbuch)([-_]|$)/i.test(e.stamm) };
       for (const h of e.dateien){
         const f = await h.getFile();
         if (/\.docx$/i.test(h.name)) b.word = AW.appXml(await zipEintrag(f, 'docProps/app.xml').catch(() => null));
@@ -1026,10 +1040,10 @@ function zeichneBericht(){
 }
 function abrechnungJetzt(){
   const pb = A.pdatei.berichte || {}, da = new Set(A.berichte.map(b => b.stamm));
-  const d = A.labelkit ? A.labelkit.daten || {} : {}, len = k => Array.isArray(d[k]) ? d[k].length : 0;
+  const d = A.labelkit ? A.labelkit.daten || {} : {};
   return AW.abrechnung({ einstellungen: A.einst, hinweise: A.ladeHinweise || [],
     zeiten: A.alle.map(f => f.kuerzel === A.kz.toUpperCase() && !f.defekt ? Object.assign({}, f, { eintraege: A.meine }) : f),
-    kategorien: A.labelkit ? A.labelkit.kategorien : [], labelkit: { pn98: len('pn98Proben'), sonstige: len('sonstigeProben') },
+    kategorien: A.labelkit ? A.labelkit.kategorien : [], labelkit: AW.labelkitInfo(d),
     // angekreuzte Berichte, deren Datei es nicht mehr gibt, bleiben sichtbar (Hinweis) statt still zu verschwinden
     berichte: [...A.berichte.map(b => Object.assign({ datei: b.stamm }, pb[b.stamm] || {})),
       ...Object.entries(pb).filter(([k, v]) => v && v.abrechnen && !da.has(k)).map(([k, v]) => Object.assign({}, v, { datei: k, fehlt: true }))],

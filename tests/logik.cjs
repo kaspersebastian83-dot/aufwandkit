@@ -225,3 +225,19 @@ assert.equal(AW.fotoDatei('._IMG_4821.jpg'), false, 'Mac-Begleitdatei'); assert.
 assert.equal(AW.fotoDatei('_Bildumbenenner.json'), false); assert.equal(AW.fotoDatei('Bilddoku.pdf'), false);
 
 console.log('BelegKit Logik: alle Prüfungen bestanden');
+
+// Bohrkerne (LabelKit 4.35+): Rückstellproben sind keine Analyse; PN 98 ohne verknüpfte Laborprobe gibt einen Hinweis
+{
+  const seg = (s, x) => Object.assign({ matrix: 'Bohrkern', bkBez: 'EG-WZ-B-7', bkStatus: s, notiz: s === 'R' ? 'Rückstellprobe – nicht analysieren' : 'MKW (KW-Index C10–C40 und C10–C22)' }, x);
+  const daten = { sonstigeProben: [seg('A'), seg('A'), seg('R'), { matrix: 'Feststoff', notiz: 'PAK', pn98Quelle: 'p1' }], pn98Proben: [{ id: 'p1' }, { id: 'p2' }] };
+  const K = AW.kategorien(daten);
+  assert.equal(K.reduce((a, k) => a + k.anzahl, 0), 3, 'Rückstellprobe nicht gezählt');
+  assert.ok(!K.some(k => /rückstellprobe/i.test(k.key)));
+  const info = AW.labelkitInfo(daten);
+  assert.deepEqual(plain(info), { pn98: 2, sonstige: 4, pn98OhneProbe: 1, rueckstell: 1 });
+  const h = AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [], labelkit: info }).hinweise.join('\n');
+  assert.match(h, /1 Bohrkern-Rückstellprobe .*nicht als Analyse gezählt/);
+  assert.match(h, /1 von 2 PN-98-Protokollen ohne verknüpfte Laborprobe/);
+  assert.deepEqual(plain(AW.labelkitInfo(null)), { pn98: 0, sonstige: 0, pn98OhneProbe: 0, rueckstell: 0 });
+}
+console.log('OK Bohrkerne/PN 98');
