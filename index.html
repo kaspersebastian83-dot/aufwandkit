@@ -449,9 +449,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.8.1';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.8.1', '24.10.2026', 'Hinweis nennt den Knopf der Projektzentrale wie dort („Zeiten & Abrechnung“). Schritt für Schritt steht im Handbuch (AidKit).'],
   ['1.8.0', '24.10.2026', 'Pflichtangaben wie in den anderen Apps: Datum und Stunden eines Zeiteintrags sind gelb hervorgehoben, solange sie leer sind. Speichern bleibt möglich.'],
   ['1.7.1', '24.10.2026', 'Behoben: Kommas zwischen Ziffern gehören zum Stoffnamen – „1,2-Dichlorethan“ oder „2,4,6-Trinitrotoluol“ zählen als eine Analyse, nicht als mehrere.'],
   ['1.7.0', '24.10.2026', 'Sonstige Proben mit mehreren Parametern werden je Parameter gezählt, wie das Labor abrechnet: „PCB, Schwermetalle“ = 1× PCB + 1× Schwermetalle, jeweils eigener Position zuordenbar. Ein Paket in einem Begriff („MKW (KW-Index C10–C40 und C10–C22)“) bleibt eine Analyse; Kommas in Klammern trennen nicht. Bisher zugeordnete Kombinationen (z. B. „PCB + Schwermetalle“) erscheinen nicht mehr – die einzelnen Parameter einmal unter „Proben“ zuordnen.'],
@@ -648,7 +649,7 @@ async function zeigeAuswahl(){
   liste.sort((a, b) => b.key - a.key);
   $('projekt').textContent = A.archiv.name;
   $('inhalt').innerHTML = `<div class="karte"><h2>Projekt wählen</h2><input type="search" id="pSuche" placeholder="Nummer oder Ort …" autocomplete="off">
-    <div id="pListe" class="pliste"></div><p class="m">Schneller: in der Projektzentrale beim Projekt auf „Abrechnung → BelegKit“.</p></div>`;
+    <div id="pListe" class="pliste"></div><p class="m">Schneller: in der Projektzentrale beim Projekt auf „Zeiten &amp; Abrechnung“.</p></div>`;
   const zeig = () => { const q = norm($('pSuche').value.trim()); $('pListe').innerHTML = liste.filter(p => !q || norm(p.name).includes(q)).slice(0, 80)
     .map(p => `<button class="pz" data-n="${esc(p.name)}"><b>${esc(p.nr)}</b> ${esc(p.ort)}</button>`).join('') || '<p class="m">Kein Projekt gefunden.</p>'; };
   $('pSuche').oninput = zeig; zeig(); $('pSuche').focus();
