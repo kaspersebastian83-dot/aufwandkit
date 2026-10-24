@@ -118,6 +118,9 @@ th{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:5px
 td{padding:4px 6px;border-bottom:1px solid var(--line);vertical-align:top;font-size:13.5px}
 .r{text-align:right}
 table.eing input[type=text],table.eing select{font-size:13px}
+/* Pflichtangaben (in allen Apps gleich): leere Pflichtzelle warm gelb, ausgefüllt wieder normal */
+td.pflicht-offen>input{border-color:#d9a400!important;background:#fff8e1;box-shadow:inset 3px 0 0 #d9a400}
+@media (prefers-color-scheme:dark){td.pflicht-offen>input{background:rgba(217,164,0,.12)}}
 select.offen{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--panel2))}
 .hinweise{background:color-mix(in srgb,var(--warn) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line));border-radius:8px;padding:8px 14px;font-size:13px;margin:6px 0 12px}
 .hinweise ul{margin:4px 0 0;padding-left:20px}
@@ -446,9 +449,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.8.0';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.8.0', '24.10.2026', 'Pflichtangaben wie in den anderen Apps: Datum und Stunden eines Zeiteintrags sind gelb hervorgehoben, solange sie leer sind. Speichern bleibt möglich.'],
   ['1.7.1', '24.10.2026', 'Behoben: Kommas zwischen Ziffern gehören zum Stoffnamen – „1,2-Dichlorethan“ oder „2,4,6-Trinitrotoluol“ zählen als eine Analyse, nicht als mehrere.'],
   ['1.7.0', '24.10.2026', 'Sonstige Proben mit mehreren Parametern werden je Parameter gezählt, wie das Labor abrechnet: „PCB, Schwermetalle“ = 1× PCB + 1× Schwermetalle, jeweils eigener Position zuordenbar. Ein Paket in einem Begriff („MKW (KW-Index C10–C40 und C10–C22)“) bleibt eine Analyse; Kommas in Klammern trennen nicht. Bisher zugeordnete Kombinationen (z. B. „PCB + Schwermetalle“) erscheinen nicht mehr – die einzelnen Parameter einmal unter „Proben“ zuordnen.'],
   ['1.6.2', '24.10.2026', 'Leiste oben in allen Apps wieder identisch (FotoKit-Projektzuordnung und offenes Menü wie in FotoKit, aktuelle Projektdaten wie in LabelKit/PlanKit); Speicherkandidaten und Kopien von PlanKit zählen nicht als Plan.'],
@@ -950,8 +954,18 @@ function zeichneZeiten(){
   tb.onclick = e => { const r = e.target.closest('button[data-route]'); if (r){ routeDialog(+r.dataset.route); return; } const b = e.target.closest('button[data-weg]'); if (!b) return; const i = +b.dataset.weg, x = A.meine[i];
     if ((x.stunden || x.km) && !confirm(`Eintrag vom ${AW.datumDe(x.datum)} löschen?`)) return; A.meine.splice(i, 1); zeichneZeiten(); meineGeaendert(); };
   $('zFassungen').onclick=pruefeZeitFassungen; $('zRetry').onclick=()=>{clearTimeout(speichernTimer);speichernTimer=null;reiheMeineEin();};
+  tb.addEventListener('input', pflichtZeiten); pflichtZeiten();
   aktualisiereZeitFassungen();
   zeichneKollegen();
+}
+/* Pflichtangaben je Zeiteintrag (wie in den anderen Apps): Datum und Stunden. Die Rolle ist immer gewählt. Nie blockierend. */
+const PFLICHT_ZEIT = ['datum', 'stunden'];
+function pflichtZeiten(){
+  const tb = $('zRows'); if (!tb) return;
+  for (const el of tb.querySelectorAll('input[data-f]')){
+    if (!PFLICHT_ZEIT.includes(el.dataset.f)) continue;
+    const leer = !String(el.value).trim(); el.closest('td').classList.toggle('pflicht-offen', leer); el.title = leer ? 'Pflichtangabe' : '';
+  }
 }
 /* ---------- Route in Google Maps (1.4) ----------
    Öffnet Google Maps in einem eigenen Fenster mit Start → Objekt (→ Start). BelegKit selbst verbindet sich mit keinem
