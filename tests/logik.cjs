@@ -30,7 +30,22 @@ assert.equal(k('chlorid-material'), 1);
 assert.equal(k('asbest-material'), 4);
 assert.equal(k('asbest-sonstige'), 1);
 assert.equal(k('sonstige:depv:misch'), 2, 'DepV-Mischprobe eigene Kategorie');
-assert.equal(k('sonstige:pcb + schwermetalle'), 2, 'gleiche Parameter in anderer Reihenfolge = eine Kategorie');
+assert.equal(k('sonstige:pcb'), 2, 'je Parameter eine Analyse: „PCB, Schwermetalle“ und „Schwermetalle + PCB“ = 2× PCB …');
+assert.equal(k('sonstige:schwermetalle'), 2, '… und 2× Schwermetalle');
+assert.equal(K.find(x => x.key === 'sonstige:pcb').label, 'Sonstige – PCB');
+assert.equal(K.filter(x => x.key.startsWith('sonstige:') && x.key.includes(' + ')).length, 0, 'keine Kombi-Kategorien mehr');
+{ // Klammern trennen nicht; Paket in einem Begriff bleibt eine Analyse; Doppelte zählen einmal
+  const K3 = AW.kategorien({ sonstigeProben: [
+    { matrix: 'Bohrkern', notiz: 'MKW (KW-Index C10–C40 und C10–C22)', bkBez: 'EG-WZ-B-1', bkStatus: 'A' },
+    { matrix: 'Feststoff', notiz: 'Schwermetalle (As, Pb, Cd); PAK; pak', z2: 'Küche' },
+    { matrix: 'Mischprobe', notiz: 'DepV, PAK', z2: 'Container' }] });
+  const k3 = key => (K3.find(x => x.key === key) || {}).anzahl;
+  assert.equal(k3('sonstige:mkw (kw-index c10–c40 und c10–c22)'), 1);
+  assert.equal(k3('sonstige:schwermetalle (as, pb, cd)'), 1);
+  assert.equal(k3('sonstige:pak'), 2, 'PAK aus zwei Proben, doppelt notiert zählt einmal');
+  assert.equal(k3('sonstige:depv:misch'), 1, 'DepV-Mischprobe bleibt eigene Kategorie, PAK der Mischprobe zählt bei PAK');
+  assert.equal(K3.length, 4);
+}
 assert.equal(k('sonstige-ohne'), 1);
 assert.equal(K.find(x => x.key === 'sonstige-ohne').ohneBezeichnung, 1);
 assert.equal(k('brandgeruch'), 5);
