@@ -221,9 +221,22 @@ const AW = (() => {
   }
 
   /* ---------- Proben aus LabelKit ----------
-     Je Liste eine Analyse; Einteilung wie LabelKits Textbausteine (Wischprobe ↔ Material, DepV-Mischprobe, Parameter der sonstigen Proben). */
+     Je Liste eine Analyse; Einteilung wie LabelKits Textbausteine (Wischprobe ↔ Material, DepV-Mischprobe, Parameter der sonstigen Proben).
+     Sonstige Proben: je Parameter eine Analyse (eigene Kategorie, eigene Position zuordenbar). */
   const ASBEST_KEIN_MATERIAL = ['wischprobe', 'wasser', 'luft (raumluft)', 'sonstige'];
-  const paramKey = v => [...new Set(str(v).split(/[;,\n+]+/).map(x => x.replace(/\s+/g, ' ').trim().toLocaleLowerCase('de-DE')).filter(Boolean))].sort().join(' + ');
+  /** Parameter einer Notiz: getrennt an ; , + und Zeilenumbruch – aber nicht innerhalb von Klammern („Schwermetalle (As, Pb, Cd)“ bleibt eins).
+      [{key: kleingeschrieben, text: wie geschrieben}], ohne Doppelte. */
+  function parameterListe(v){
+    const teile = []; let tiefe = 0, akt = '';
+    for (const ch of str(v)){
+      if ('([{'.includes(ch)) tiefe++; else if (')]}'.includes(ch)) tiefe = Math.max(0, tiefe - 1);
+      if (!tiefe && /[;,\n+]/.test(ch)){ teile.push(akt); akt = ''; } else akt += ch;
+    }
+    teile.push(akt);
+    const out = new Map();
+    for (const x of teile){ const text = x.replace(/\s+/g, ' ').trim(), key = text.toLocaleLowerCase('de-DE'); if (key && !out.has(key)) out.set(key, { key, text }); }
+    return [...out.values()];
+  }
   /* Bohrkern-Segment „R“ (LabelKit): nur gesägt und aufbewahrt – keine Analyse, wird nicht gezählt. */
   const RUECKSTELLPROBE = 'Rückstellprobe – nicht analysieren';
   const rueckstell = p => !!p && p.matrix === 'Bohrkern' && (t(p.bkStatus).toUpperCase() === 'R' || t(p.notiz) === RUECKSTELLPROBE);
@@ -250,10 +263,14 @@ const AW = (() => {
       ? add('asbest-sonstige', 'Asbest – ' + (t(p.matrix) || 'ohne Matrix'), p) : add('asbest-material', 'Asbest – Materialproben', p));
     L('sonstigeProben').forEach(p => {
       if (rueckstell(p)) return;
-      const par = paramKey(p.notiz), misch = /\bmischprobe\b/i.test(str(p.matrix));
-      if (!par) return add('sonstige-ohne', 'Sonstige Proben ohne Untersuchungsparameter', p);
-      const depv = /\bdepv\b|deponieverordnung/i.test(par);
-      add('sonstige:' + par + (depv && misch ? ':misch' : ''), (depv && misch ? 'DepV-Mischprobe – ' : 'Sonstige – ') + t(p.notiz).replace(/\s+/g, ' '), p);
+      // Je Parameter eine Analyse (das Labor rechnet je Parameter ab): „PCB, Schwermetalle“ = 1× PCB + 1× Schwermetalle.
+      // Ein Paket in einem Begriff („MKW (KW-Index C10–C40 und C10–C22)“) bleibt eine Analyse.
+      const pars = parameterListe(p.notiz), misch = /\bmischprobe\b/i.test(str(p.matrix));
+      if (!pars.length) return add('sonstige-ohne', 'Sonstige Proben ohne Untersuchungsparameter', p);
+      for (const par of pars){
+        const depv = /\bdepv\b|deponieverordnung/i.test(par.key);
+        add('sonstige:' + par.key + (depv && misch ? ':misch' : ''), (depv && misch ? 'DepV-Mischprobe – ' : 'Sonstige – ') + par.text, p);
+      }
     });
     L('brandgeruchProben').forEach(p => add('brandgeruch', 'Brandgeruch (sensorische Prüfung)', null));
     return [...k.values()];
@@ -425,9 +442,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.6.2';
+const APP_VERSION = '1.7.0';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.7.0', '24.10.2026', 'Sonstige Proben mit mehreren Parametern werden je Parameter gezählt, wie das Labor abrechnet: „PCB, Schwermetalle“ = 1× PCB + 1× Schwermetalle, jeweils eigener Position zuordenbar. Ein Paket in einem Begriff („MKW (KW-Index C10–C40 und C10–C22)“) bleibt eine Analyse; Kommas in Klammern trennen nicht. Bisher zugeordnete Kombinationen (z. B. „PCB + Schwermetalle“) erscheinen nicht mehr – die einzelnen Parameter einmal unter „Proben“ zuordnen.'],
   ['1.6.2', '24.10.2026', 'Leiste oben in allen Apps wieder identisch (FotoKit-Projektzuordnung und offenes Menü wie in FotoKit, aktuelle Projektdaten wie in LabelKit/PlanKit); Speicherkandidaten und Kopien von PlanKit zählen nicht als Plan.'],
   ['1.6.1', '24.10.2026', 'Bohrkern-Rückstellproben aus LabelKit (nur gesägt und aufbewahrt) werden nicht mehr als Analyse gezählt; ein Hinweis nennt ihre Anzahl. Neuer Hinweis, wenn PN-98-Protokolle keine verknüpfte Laborprobe haben, auch wenn es andere sonstige Proben gibt. PlanKit-Anlagen und Raumbuch in „Mitteilungen“ sind als Anlage markiert.'],
   ['1.6.0', '23.10.2026', 'Projektordner „26.0123 Köln Nad“: Mit der Mitarbeiterliste der Projektzentrale steht der Ort ohne Kürzel (Projektauswahl, Abrechnung, Routenziel). „Ihr Kürzel“: Ist noch keines gespeichert und wurde in der Projektzentrale „Ich bin …“ gewählt, übernimmt BelegKit beim Öffnen eines Projekts das App-Kürzel aus der Mitarbeiterliste; ein vorhandenes Kürzel wird nie überschrieben. Das Kürzelfeld bietet die Kürzel der Liste zur Auswahl an.'],
