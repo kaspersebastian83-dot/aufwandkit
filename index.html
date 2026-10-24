@@ -224,13 +224,17 @@ const AW = (() => {
      Je Liste eine Analyse; Einteilung wie LabelKits Textbausteine (Wischprobe ↔ Material, DepV-Mischprobe, Parameter der sonstigen Proben).
      Sonstige Proben: je Parameter eine Analyse (eigene Kategorie, eigene Position zuordenbar). */
   const ASBEST_KEIN_MATERIAL = ['wischprobe', 'wasser', 'luft (raumluft)', 'sonstige'];
-  /** Parameter einer Notiz: getrennt an ; , + und Zeilenumbruch – aber nicht innerhalb von Klammern („Schwermetalle (As, Pb, Cd)“ bleibt eins).
+  /** Parameter einer Notiz: getrennt an ; , + und Zeilenumbruch – aber nicht innerhalb von Klammern („Schwermetalle (As, Pb, Cd)“ bleibt eins)
+      und nicht an Kommas zwischen Ziffern („1,2-Dichlorethan“).
       [{key: kleingeschrieben, text: wie geschrieben}], ohne Doppelte. */
   function parameterListe(v){
     const teile = []; let tiefe = 0, akt = '';
-    for (const ch of str(v)){
+    const zeichen = [...str(v)];
+    for (const [i, ch] of zeichen.entries()){
       if ('([{'.includes(ch)) tiefe++; else if (')]}'.includes(ch)) tiefe = Math.max(0, tiefe - 1);
-      if (!tiefe && /[;,\n+]/.test(ch)){ teile.push(akt); akt = ''; } else akt += ch;
+      // Komma zwischen Ziffern gehört zum Stoffnamen („1,2-Dichlorethan“, „2,4,6-Trinitrotoluol“) und trennt nicht
+      const imNamen = ch === ',' && /\d/.test(zeichen[i - 1] || '') && /\d/.test(zeichen[i + 1] || '');
+      if (!tiefe && !imNamen && /[;,\n+]/.test(ch)){ teile.push(akt); akt = ''; } else akt += ch;
     }
     teile.push(akt);
     const out = new Map();
@@ -442,9 +446,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 const APP_DATE = '2026-10-23';
 const CHANGELOG = [
+  ['1.7.1', '24.10.2026', 'Behoben: Kommas zwischen Ziffern gehören zum Stoffnamen – „1,2-Dichlorethan“ oder „2,4,6-Trinitrotoluol“ zählen als eine Analyse, nicht als mehrere.'],
   ['1.7.0', '24.10.2026', 'Sonstige Proben mit mehreren Parametern werden je Parameter gezählt, wie das Labor abrechnet: „PCB, Schwermetalle“ = 1× PCB + 1× Schwermetalle, jeweils eigener Position zuordenbar. Ein Paket in einem Begriff („MKW (KW-Index C10–C40 und C10–C22)“) bleibt eine Analyse; Kommas in Klammern trennen nicht. Bisher zugeordnete Kombinationen (z. B. „PCB + Schwermetalle“) erscheinen nicht mehr – die einzelnen Parameter einmal unter „Proben“ zuordnen.'],
   ['1.6.2', '24.10.2026', 'Leiste oben in allen Apps wieder identisch (FotoKit-Projektzuordnung und offenes Menü wie in FotoKit, aktuelle Projektdaten wie in LabelKit/PlanKit); Speicherkandidaten und Kopien von PlanKit zählen nicht als Plan.'],
   ['1.6.1', '24.10.2026', 'Bohrkern-Rückstellproben aus LabelKit (nur gesägt und aufbewahrt) werden nicht mehr als Analyse gezählt; ein Hinweis nennt ihre Anzahl. Neuer Hinweis, wenn PN-98-Protokolle keine verknüpfte Laborprobe haben, auch wenn es andere sonstige Proben gibt. PlanKit-Anlagen und Raumbuch in „Mitteilungen“ sind als Anlage markiert.'],
