@@ -59,6 +59,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   await weiterOhne.waitFor();
   assert.match(await weiterOhne.textContent(), /Weiter mit 26\.0142 Teststadt/);
   assert.equal(await weiterOhne.getAttribute('href'), '#projekt=' + encodeURIComponent(A));
+  assert.equal(new URL(await page.locator('#mosaikLeiste a.ml-rm').getAttribute('href'), 'http://x/app/').searchParams.has('projekt'), false, 'ohne Projekt keine Projektnummer');
 
   // 2) mit Projekt: Name, Objekt, vier Schritte mit Haken, nächster Schritt
   await page.goto(url + '?projekt=' + encodeURIComponent(A));
@@ -79,6 +80,13 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   assert.equal(await leiste.locator('.ml-weiter').getAttribute('target'), APP === 'plan' ? 'aufwandkit' : 'plankit');
   // Schritte der anderen Apps sind Links mit demselben Projekt, die eigene App ist keiner
   assert.equal(await leiste.locator('a.ml-step').count(), 3);
+  // „💬 Rückmeldung“: Programm, Version, nur die Projektnummer (kein Ort), eigenes Fenster
+  const rm = leiste.locator('a.ml-rm'), rmUrl = new URL(await rm.getAttribute('href'), 'http://x/app/');
+  assert.equal(rmUrl.pathname, '/rueckmeldung/');
+  assert.equal(rmUrl.searchParams.get('app'), {label: 'labelkit', fotos: 'fotokit', plan: 'plankit', beleg: 'belegkit'}[APP]);
+  assert.match(rmUrl.searchParams.get('version') || '', /^\d+\.\d+\.\d+$/);
+  assert.equal(rmUrl.searchParams.get('projekt'), '26.0142');
+  assert.equal(await rm.getAttribute('target'), 'rueckmeldung');
   for (const a of await leiste.locator('a.ml-step, a.ml-weiter').all()){
     const link = new URL(await a.getAttribute('href'), page.url());
     assert.equal(link.searchParams.has('projekt'), false, 'Kein Projekt im HTTP-Query');
@@ -106,6 +114,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   await leiste.locator('.ml-proj').click();
   const pop = page.locator('#mosaikLeistePop');
   assert.match(await pop.textContent(), /26\.0150 Köln/); assert.match(await pop.textContent(), /Alle Projekte/);
+  assert.equal(await pop.locator('a.ml-rm-pop').getAttribute('target'), 'rueckmeldung');   // auch auf dem Handy erreichbar (dort ohne Knopf in der Leiste)
   // Aktualisierung im Hintergrund (alle 20 s, beim Fensterwechsel) schließt das offene Menü nicht
   await page.evaluate(() => window.MosaikLeiste.aktualisieren()); await page.waitForTimeout(150);
   assert.equal(await pop.count(), 1, 'Menü bleibt bei Aktualisierung offen');
