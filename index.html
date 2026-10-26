@@ -684,6 +684,8 @@ async function ladeAlles(){
   // sonst hängen sich zwei Läufe in dieselben Listen (Stunden und Berichtsseiten doppelt, „Mehrere Zeitdateien“).
   const N = {}, archiv = A.archiv, proj = A.proj;
   const token = ++A.laden, aktuell = () => token === A.laden && A.proj === proj;
+  // Neues Projekt: Berichte und Angaben des vorigen bis zum Ende des Einlesens weder zeigen noch speichern (speichereBericht prüft geladenFuer)
+  if (A.geladenFuer !== proj){ A.berichte = []; A.alle = []; A.pdatei = { berichte: {} }; }
   $('inhalt').innerHTML = '<div class="leer"><p>Wird gelesen …</p></div>';
   const fehler = [], quellen = [];   // quellen: Lesefehler, die in der Abrechnung als Hinweis stehen müssen (fehlende Zeiten, Proben, Seiten)
   try{ const e = await liesJson(archiv, EINST_DATEI); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
@@ -750,7 +752,7 @@ async function ladeAlles(){
   }
   N.ladeHinweise = quellen;
   if (!aktuell()) return;
-  Object.assign(A, N);
+  Object.assign(A, N); A.geladenFuer = proj;
   uebernehmeMeineDatei();
   if (fehler.length) meldung('err', fehler.map(esc).join('<br>')); else versteckeMeldung();
   zeichne();
@@ -890,6 +892,7 @@ async function pruefeZeitFassungen(){
 
 /** Projektdatei: frisch lesen, nur die Berichtsangabe ändern, schreiben (wie _Projekt.json). */
 async function speichereBericht(stamm, patch){
+  if (A.geladenFuer !== A.proj){ status('Das Projekt wird noch gelesen – bitte gleich noch einmal.', 'err'); return; }
   if (A.pdateiGesperrt){ status(`„${PROJ_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
   const abr = await unter(A.proj.dir, ORDNER.abr, true), cur = await liesJson(abr, PROJ_DATEI);
   const o = Object.assign({ format: 'aufwandkit-projekt', version: 1, hinweis: 'Angaben zur Abrechnung dieses Projekts (BelegKit). Bitte nicht löschen.', berichte: {} }, cur && cur.daten);

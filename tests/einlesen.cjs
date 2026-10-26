@@ -31,6 +31,7 @@ async function sitzung(archiv,P,nr,io){
  vm.runInContext(html.slice(html.indexOf('async function ladeAlles(){'),html.indexOf('/* ---------- Speichern ---------- */')),c);
  vm.runInContext(html.slice(html.indexOf('function uebernehmeMeineDatei(){'),html.indexOf('/** Projektdatei:')),c);
  vm.runInContext(html.slice(html.indexOf('function abrechnungJetzt(){'),html.indexOf('function zeichneAbrechnung(){')),c);
+ {const i=html.indexOf('async function speichereBericht(');vm.runInContext(html.slice(i,html.indexOf('\n}\n',i)+3),c);}
  return c;
 }
 const stand=c=>({berichte:c.A.berichte.map(b=>b.stamm).join(','),seiten:c.abrechnungJetzt().seiten,sv1:c.abrechnungJetzt().sum.sv1,alle:c.A.alle.length,mehrdeutig:c.A.meineMehrdeutig,projekt:c.A.proj.nr});
@@ -54,7 +55,11 @@ const stand=c=>({berichte:c.A.berichte.map(b=>b.stamm).join(','),seiten:c.abrech
   const c=await sitzung(tmp,X,'26.0101',io);
   const alt=c.ladeAlles();await sleep(20);
   c.A.proj={name:path.basename(Y),nr:'26.0102',dir:new Dir(Y,io)};
-  const neu=c.ladeAlles();await Promise.all([alt,neu]);
+  const neu=c.ladeAlles();
+  // solange das neue Projekt gelesen wird: keine Berichte des alten zeigen, nichts ins neue Projekt speichern
+  assert.equal(c.A.berichte.length,0,'Berichte des vorigen Projekts nicht sichtbar');
+  {let meldung='';c.status=m=>{meldung=m;};await c.speichereBericht('1__Bericht',{abrechnen:false});c.status=()=>{};assert.match(meldung,/noch gelesen/,'Speichern während des Lesens abgelehnt');}
+  await Promise.all([alt,neu]);
   assert.deepEqual({...stand(c)},{berichte:'1__Bericht',seiten:10,sv1:3,alle:1,mehrdeutig:false,projekt:'26.0102'},'nach Projektwechsel nur Daten des neuen Projekts');
   assert.equal(c.gezeichnet,1);
   console.log('OK Einlesen: doppelt „Neu einlesen“ und Projektwechsel während des Ladens ohne doppelte Stunden/Berichte');
