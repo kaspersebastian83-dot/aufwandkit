@@ -25,6 +25,7 @@ jobs:
           node-version: 24
       - run: node tests/logik.cjs
       - run: node tests/f4.cjs
+      - run: node tests/einlesen.cjs
       - run: node tests/ordnername.cjs
       - run: node tests/hilfe-links.cjs
 

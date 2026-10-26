@@ -363,7 +363,7 @@ const AW = (() => {
       if (!t(p.nr)) hinweise.push(`„${p.text}“ (Titel ${p.titel}) hat keine Positionsnummer – bitte in den Einstellungen eintragen.`);
       const eigen = !!extra && 'preis' in extra, preis = eigen ? extra.preis : zahl(p.preis);
       if (!eigen && Number.isNaN(preis)) hinweise.push(`Preis für „${p.text}“ (Titel ${p.titel}) „${t(p.preis)}“ ist keine Zahl – bitte in den Einstellungen ohne Tausenderpunkt eintragen (z. B. 1250,00).`);
-      const ok = preis != null && Number.isFinite(preis) && preis !== 0;
+      const ok = preis != null && Number.isFinite(preis) && (eigen || preis !== 0);   // Katalogpreis leer → 0 → kein Betrag; eigener Betrag 0 (3.002 mit Sätzen „0“) ist ein Betrag
       (zeilen[p.titel] || zeilen[3]).push({ key, nr: t(p.nr), text: p.text, menge, einheit: t(p.einheit), preis: ok ? geld(preis) : null, gesamt: ok ? geld(menge * geld(preis)) : null, quelle, zusatz: extra && extra.zusatz || '' });
     };
     const s = z.sum;
@@ -413,7 +413,7 @@ const AW = (() => {
         if (offen) hinweise.push(`3.002: ${offen} Bericht${offen === 1 ? '' : 'e'} ohne gültige Seitenzahl – kein Betrag, bis die Seitenzahl bestätigt ist.`);
         const ungueltig = [ps, pf, pp].some(Number.isNaN) || fehlt.length || offen;
         const betrag = ungueltig ? null : geld(geld(ps * seiten) + geld(pf * fotos) + geld(pp));
-        zeile('neben', 1, quelle, { preis: betrag || null });
+        zeile('neben', 1, quelle, { preis: betrag });   // 0 ist ein Betrag (Sätze bewusst „0“), null nur bei fehlendem/ungültigem Satz
       }
     }
     const titelText = { 1: (E.titel[1] || TITEL[1]) + (z.sum.ortstermine.size ? ' ' + terminText([...z.sum.ortstermine]) : '') + '\nZeitaufwand', 2: E.titel[2] || TITEL[2], 3: E.titel[3] || TITEL[3] };
@@ -452,9 +452,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.10.0';
+const APP_VERSION = '1.10.1';
 const APP_DATE = '2026-10-26';
 const CHANGELOG = [
+  ['1.10.1', '26.10.2026', 'Behoben: Zweimal schnell „Neu einlesen“ oder ein Projektwechsel während des Einlesens zählte Stunden und Berichtsseiten doppelt und meldete „Mehrere Zeitdateien“ – es gilt jetzt nur noch das zuletzt begonnene Einlesen, der Knopf ist währenddessen gesperrt. 3.002 mit Sätzen „0“ (kostenlos, wie im Hinweis empfohlen) zeigt jetzt 0,00 € statt „kein Betrag“; Summe Titel 3 und Netto erscheinen wieder.'],
   ['1.10.0', '26.10.2026', 'Spektron-Leiste mit fünftem Schritt ResultKit (zwischen FotoKit und PlanKit): Laborergebnisse des Projekts – was zurück ist und was noch fehlt. Haken, sobald die Ergebnisse in ResultKit übernommen sind. An BelegKit selbst ändert sich nichts.'],
   ['1.9.0', '26.10.2026', 'Spektron-Leiste oben: rechts „💬 Rückmeldung“ (bei schmalem Fenster nur 💬, auf dem Handy im Projektmenü ▾). Öffnet das Rückmeldeformular in einem eigenen Fenster; Programm, Version und – bei geöffnetem Projekt – die Projektnummer sind schon eingetragen (nur die Nummer, kein Ort). Die Leiste ist in allen Apps gleich.'],
   ['1.8.2', '26.10.2026', 'Neben „Kurzanleitung“: „📘 Handbuch“ öffnet BelegKit Schritt für Schritt im Handbuch (AidKit), immer im selben Fenster; ebenso oben in der Kurzanleitung.'],
@@ -679,38 +680,42 @@ async function oeffne(name){
 /** Alles frisch lesen: Einstellungen, Zeiten aller Kollegen, LabelKit, Fotos, Berichte, Projektdatei. */
 async function ladeAlles(){
   try{ await sichereMeine(); }catch(e){ return; }   // bei Speicherfehlern Eingaben und Oberfläche erhalten
-  const token = ++A.laden, aktuell = () => token === A.laden;
+  // Erst in ein eigenes Objekt lesen und nur übernehmen, wenn kein neueres Einlesen (doppelt „Neu einlesen“, Projektwechsel) begonnen hat –
+  // sonst hängen sich zwei Läufe in dieselben Listen (Stunden und Berichtsseiten doppelt, „Mehrere Zeitdateien“).
+  const N = {}, archiv = A.archiv, proj = A.proj;
+  const token = ++A.laden, aktuell = () => token === A.laden && A.proj === proj;
+  // Neues Projekt: Berichte und Angaben des vorigen bis zum Ende des Einlesens weder zeigen noch speichern (speichereBericht prüft geladenFuer)
+  if (A.geladenFuer !== proj){ A.berichte = []; A.alle = []; A.pdatei = { berichte: {} }; }
   $('inhalt').innerHTML = '<div class="leer"><p>Wird gelesen …</p></div>';
   const fehler = [], quellen = [];   // quellen: Lesefehler, die in der Abrechnung als Hinweis stehen müssen (fehlende Zeiten, Proben, Seiten)
-  try{ const e = await liesJson(A.archiv, EINST_DATEI); A.einst = AW.einstellungen(e && e.daten); A.einstAusDatei = !!e; A.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; A.einstStand = e && e.daten && e.daten.geaendert || null; A.einstGesperrt = false; }
-  catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); A.einst = AW.einstellungen(null); A.einstAusDatei = false; A.einstGesperrt = true; }
-  const abr = await unter(A.proj.dir, ORDNER.abr, false);
-  A.alle = [];
+  try{ const e = await liesJson(archiv, EINST_DATEI); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
+  catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); N.einst = AW.einstellungen(null); N.einstAusDatei = false; N.einstGesperrt = true; }
+  const abr = await unter(proj.dir, ORDNER.abr, false);
+  N.alle = [];
   if (abr) for await (const h of abr.values()){
     const m = /^Aufwand_([A-Za-zÄÖÜäöü]{1,6})\.json$/.exec(h.kind === 'file' ? h.name : '');
     if (!m) continue;
-    try{ const j = await TimeStore.read(abr, h.name, {projekt:A.proj.nr,kuerzel:m[1].toUpperCase()}); if(!j.exists)throw Error('Datei während des Lesens verschwunden'); A.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: j.data.eintraege, geaendert: j.modified, revision:j.revision, daten:j.data }); }
-    catch(e){ fehler.push(e.message); A.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: [], defekt: true }); }
+    try{ const j = await TimeStore.read(abr, h.name, {projekt:proj.nr,kuerzel:m[1].toUpperCase()}); if(!j.exists)throw Error('Datei während des Lesens verschwunden'); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: j.data.eintraege, geaendert: j.modified, revision:j.revision, daten:j.data }); }
+    catch(e){ fehler.push(e.message); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: [], defekt: true }); }
   }
-  uebernehmeMeineDatei();
-  try{ const j = await liesJson(abr, PROJ_DATEI); A.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; A.pdateiGesperrt = false; }
-  catch(e){ fehler.push(e.message); quellen.push(`Berichtsangaben nicht lesbar – angekreuzte Berichte und Seitenzahlen fehlen: ${e.message}`); A.pdatei = { berichte: {} }; A.pdateiGesperrt = true; }
+  try{ const j = await liesJson(abr, PROJ_DATEI); N.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; N.pdateiGesperrt = false; }
+  catch(e){ fehler.push(e.message); quellen.push(`Berichtsangaben nicht lesbar – angekreuzte Berichte und Seitenzahlen fehlen: ${e.message}`); N.pdatei = { berichte: {} }; N.pdateiGesperrt = true; }
   // Gemeinsame Projektdaten (Projektzentrale): nur lesen und anzeigen – bearbeitet wird in der Projektzentrale
-  A.pj = null;
-  try{ const j = await liesJson(A.proj.dir, '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') A.pj = j.daten; }
+  N.pj = null;
+  try{ const j = await liesJson(proj.dir, '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') N.pj = j.daten; }
   catch(e){ fehler.push(e.message); }
   // LabelKit: neueste …_Daten.json
-  A.labelkit = null;
-  const lab = await unter(A.proj.dir, ORDNER.lab, false);
+  N.labelkit = null;
+  const lab = await unter(proj.dir, ORDNER.lab, false);
   if (lab){
     let best = null;
     for await (const h of lab.values()) if (h.kind === 'file' && /_Daten\.json$/i.test(h.name)){ const f = await h.getFile(); if (!best || f.lastModified > best.lastModified) best = f; }
-    if (best){ try{ const daten = JSON.parse(await best.text()); A.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
+    if (best){ try{ const daten = JSON.parse(await best.text()); N.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
       catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); quellen.push(`LabelKit-Datei „${best.name}“ ist nicht lesbar – Titel 2 (Labor) fehlt.`); } }
   }
   // Fotos: Bilddateien direkt in „Fotos“, ohne die in FotoKit aussortierten
-  A.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“', hinweise: [] };
-  const fo = await unter(A.proj.dir, ORDNER.fotos, false);
+  N.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“', hinweise: [] };
+  const fo = await unter(proj.dir, ORDNER.fotos, false);
   if (fo){
     const namen = [], unterOrdner = [];
     for await (const h of fo.values()){
@@ -724,11 +729,11 @@ async function ladeAlles(){
     try{ const j = await liesJson(fo, '_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
     catch(e){ fh.push(`„Fotos/_Bildumbenenner.json“ ist nicht lesbar – in FotoKit aussortierte Fotos können nicht abgezogen werden, alle ${namen.length} Bilder sind gezählt.`); }
     if (unterOrdner.length) fh.push(`Im Ordner „Fotos“ liegen Bilder in Unterordnern (${unterOrdner.join(', ')}) – gezählt werden nur die Fotos direkt in „Fotos“.`);
-    A.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
+    N.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
   }
   // Berichte in „Mitteilungen“: je Dateistamm eine Zeile (Word und PDF)
-  A.berichte = [];
-  const mi = await unter(A.proj.dir, ORDNER.mitteil, false);
+  N.berichte = [];
+  const mi = await unter(proj.dir, ORDNER.mitteil, false);
   if (mi){
     const st = new Map();
     for await (const h of mi.values()){
@@ -742,11 +747,13 @@ async function ladeAlles(){
         if (/\.docx$/i.test(h.name)) b.word = AW.appXml(await zipEintrag(f, 'docProps/app.xml').catch(() => null));
         if (/\.pdf$/i.test(h.name)) b.pdf = f.size < 80e6 ? AW.pdfSeiten(new TextDecoder('latin1').decode(await f.arrayBuffer())) : null;
       }
-      A.berichte.push(b);
+      N.berichte.push(b);
     }
   }
-  A.ladeHinweise = quellen;
+  N.ladeHinweise = quellen;
   if (!aktuell()) return;
+  Object.assign(A, N); A.geladenFuer = proj;
+  uebernehmeMeineDatei();
   if (fehler.length) meldung('err', fehler.map(esc).join('<br>')); else versteckeMeldung();
   zeichne();
 }
@@ -885,6 +892,7 @@ async function pruefeZeitFassungen(){
 
 /** Projektdatei: frisch lesen, nur die Berichtsangabe ändern, schreiben (wie _Projekt.json). */
 async function speichereBericht(stamm, patch){
+  if (A.geladenFuer !== A.proj){ status('Das Projekt wird noch gelesen – bitte gleich noch einmal.', 'err'); return; }
   if (A.pdateiGesperrt){ status(`„${PROJ_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
   const abr = await unter(A.proj.dir, ORDNER.abr, true), cur = await liesJson(abr, PROJ_DATEI);
   const o = Object.assign({ format: 'aufwandkit-projekt', version: 1, hinweis: 'Angaben zur Abrechnung dieses Projekts (BelegKit). Bitte nicht löschen.', berichte: {} }, cur && cur.daten);
@@ -1195,7 +1203,7 @@ $('ver').onclick = info;
 $('hilfe').onclick = info;
 $('bZentrale').onclick = () => { location.href = '../Projektzentrale/'; };
 $('bWechsel').onclick = async () => { if (!A.archiv) return; try{ await sichereMeine(); }catch(e){ return; } A.proj = null; try{ PROJEKT_URL.setzen(null); }catch(e){} document.title = APP_NAME; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
-$('bNeu').onclick = () => { if (A.proj) ladeAlles(); };
+$('bNeu').onclick = async () => { if (!A.proj) return; $('bNeu').disabled = true; try{ await ladeAlles(); }finally{ $('bNeu').disabled = !A.proj; } };
 
 $('kz').value = A.kz;
 $('kz').onchange = () => { const v = $('kz').value.trim(); if (!AW.kuerzelOk(v)){ status('Kürzel: 1–6 Buchstaben', 'err'); $('kz').value = A.kz; return; } setzeKuerzel(v); };
