@@ -216,6 +216,16 @@ assert.match(AW.abrechnung({ einstellungen: E, zeiten: [{ kuerzel: 'SK', eintrae
   const E6 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '0', foto: '0,94', pauschale: '' } }));
   const r6 = AW.abrechnung({ einstellungen: E6, zeiten: [], kategorien: [], berichte: [{ datei: 'M', abrechnen: true, seiten: '24' }], fotos: { anzahl: 60 } });
   assert.equal(r6.titel.find(x => x.nr === 3).zeilen.find(x => x.key === 'neben').gesamt, 56.4, '„0“ eingetragen = Seiten kosten nichts');
+  // alle Sätze „0“ (wie der Hinweis empfiehlt): 0,00 € ist ein Betrag – Titel 3 und Netto bleiben sichtbar (bisher: 0 → „kein Betrag“)
+  const E0 = AW.einstellungen(Object.assign(AW.STANDARD(), { saetze: { seite: '0', foto: '0', pauschale: '' } }));
+  const r0 = AW.abrechnung({ einstellungen: E0, zeiten: [{ kuerzel: 'SK', eintraege: [{ datum: '2026-10-01', art: 'ort', rolle: 'Sachverständiger', stunden: '2' }] }], kategorien: [], berichte: [{ datei: 'B', abrechnen: true, seiten: '10' }], fotos: { anzahl: 5 } });
+  const t3 = r0.titel.find(x => x.nr === 3), z0 = t3.zeilen.find(x => x.key === 'neben');
+  assert.equal(z0.preis, 0); assert.equal(z0.gesamt, 0); assert.equal(t3.summe, 0);
+  assert.equal(r0.netto, 290, 'Netto = 2 Std. × 145,00 € + 3.002 mit 0,00 €');
+  assert.match(AW.csv(r0), /3\.002;[^\n]*;0,00;0,00;/);
+  // Übernachtung ohne Betrag bleibt ohne Betrag (kein vorgetäuschtes 0,00 €)
+  const rh = AW.abrechnung({ einstellungen: E0, zeiten: [{ kuerzel: 'SK', eintraege: [{ datum: '2026-10-01', art: 'ort', stunden: '2', hotelAnzahl: '1' }] }], kategorien: [], berichte: [] });
+  assert.equal(rh.titel[0].zeilen.find(x => x.key === 'hotel').gesamt, null); assert.equal(rh.netto, null);
 }
 // 3.002: Bericht ohne bestätigte Seitenzahl → kein Betrag (bisher: Betrag nur aus den übrigen Seiten, sah vollständig aus)
 {
