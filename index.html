@@ -73,6 +73,8 @@ header{background:var(--panel);border-bottom:1px solid var(--line);display:flex;
 .hbadge{font:500 11px/1 var(--mono);background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.28);border-radius:4px;padding:5px 9px;color:#fff;box-shadow:none}
 button.hbadge:hover{background:rgba(255,255,255,.26);color:#fff;border-color:rgba(255,255,255,.5)}
 .hbadge.help{font-family:var(--sans);font-size:12px;padding:4px 10px}
+.hilfe-kopf{text-decoration:none;display:inline-flex;align-items:center}
+.hilfe-verweis{margin:0 0 10px;padding:8px 10px;background:var(--panel2,#f4f9fe);border-left:3px solid var(--accent,#3f7cc0)}
 .hbadge.help b{display:inline-block;width:16px;height:16px;line-height:16px;border-radius:50%;background:#fff;color:var(--head);text-align:center;font-size:11px;margin-right:4px}
 .appbar .folder{font:12px var(--mono);color:rgba(255,255,255,.82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 20px}
@@ -151,6 +153,7 @@ table.abr tr.summe td,table.abr tfoot td{font-weight:600}
     <div class="brand"><span class="hex">⬡</span> BelegKit <small>Zeiten · Proben · Abrechnung</small></div>
     <button id="ver" class="hbadge" title="Version und Änderungen">v1.4.1</button>
     <button id="hilfe" class="hbadge help" title="Kurzanleitung"><b>?</b> Kurzanleitung</button>
+    <a id="lnkHandbuch" class="hbadge help hilfe-kopf" href="../aidkit/#app-belegkit" target="aidkit" rel="noopener" title="Handbuch: BelegKit Schritt für Schritt (öffnet AidKit in einem eigenen Fenster)">📘 Handbuch</a>
     <span class="spacer"></span>
     <span class="folder" id="projekt"></span>
   </div>
@@ -449,9 +452,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.8.1';
-const APP_DATE = '2026-10-23';
+const APP_VERSION = '1.8.2';
+const APP_DATE = '2026-10-26';
 const CHANGELOG = [
+  ['1.8.2', '26.10.2026', 'Neben „Kurzanleitung“: „📘 Handbuch“ öffnet BelegKit Schritt für Schritt im Handbuch (AidKit), immer im selben Fenster; ebenso oben in der Kurzanleitung.'],
   ['1.8.1', '24.10.2026', 'Hinweis nennt den Knopf der Projektzentrale wie dort („Zeiten & Abrechnung“). Schritt für Schritt steht im Handbuch (AidKit).'],
   ['1.8.0', '24.10.2026', 'Pflichtangaben wie in den anderen Apps: Datum und Stunden eines Zeiteintrags sind gelb hervorgehoben, solange sie leer sind. Speichern bleibt möglich.'],
   ['1.7.1', '24.10.2026', 'Behoben: Kommas zwischen Ziffern gehören zum Stoffnamen – „1,2-Dichlorethan“ oder „2,4,6-Trinitrotoluol“ zählen als eine Analyse, nicht als mehrere.'],
@@ -1175,7 +1179,7 @@ function status(t, art){ const el = $('status'); el.textContent = t; el.classNam
 function meldung(art, html){ const b = $('banner'); b.className = 'show ' + art; b.innerHTML = html; }
 function versteckeMeldung(){ $('banner').className = ''; $('banner').innerHTML = ''; }
 function info(){
-  $('dlg').innerHTML = `<h3>${APP_NAME} ${APP_VERSION}</h3><div class="m"><p>Erfasst, was in die Rechnung gehört: Zeiten, km, Spesen, Übernachtungen je Kollege, Proben aus LabelKit, Berichtsseiten und Fotos. Die Rechnung selbst entsteht im Rechnungsprogramm.</p>
+  $('dlg').innerHTML = `<h3>${APP_NAME} ${APP_VERSION}</h3><p class="hilfe-verweis">Schritt für Schritt mit Übungen: <a href="../aidkit/#app-belegkit" target="aidkit" rel="noopener">📘 Handbuch – BelegKit</a></p><div class="m"><p>Erfasst, was in die Rechnung gehört: Zeiten, km, Spesen, Übernachtungen je Kollege, Proben aus LabelKit, Berichtsseiten und Fotos. Die Rechnung selbst entsteht im Rechnungsprogramm.</p>
     <ol><li><b>Meine Zeiten:</b> Kürzel eintragen, je Ortstermin Stunden (inkl. Fahrt), km (nur der Fahrer), Spesentage und Übernachtung mit Betrag lt. Beleg; Auswertung und Bericht als eigene Einträge. 🗺 neben den km öffnet die Route in Google Maps (Büro → Objekt → Büro), der Link bleibt am Eintrag gespeichert.</li>
     <li><b>Proben:</b> jede Probenart einmal einer Rechnungsposition zuordnen (gilt danach für alle Projekte).</li>
     <li><b>Bericht &amp; Fotos:</b> abzurechnende Berichte ankreuzen, Seitenzahl bestätigen.</li>
