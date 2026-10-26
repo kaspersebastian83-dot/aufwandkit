@@ -1400,6 +1400,9 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       '#mosaikLeistePop a{display:block;padding:8px 10px;border-radius:7px;color:inherit;text-decoration:none}#mosaikLeistePop a:hover,#mosaikLeistePop a:focus-visible{background:#eaf1f6;outline:0}' +
       '#mosaikLeistePop a.aktuell{font-weight:650;background:#f2f6f9}#mosaikLeistePop hr{border:0;border-top:1px solid #e2e9ee;margin:5px 4px}' +
       '#mosaikLeiste.ml-kompakt{height:24px;font-size:12px;padding:0 8px}#mosaikLeiste.ml-kompakt .ml-home,#mosaikLeiste.ml-kompakt .ml-proj,#mosaikLeiste.ml-kompakt .ml-step,#mosaikLeiste.ml-kompakt .ml-weiter,#mosaikLeiste.ml-kompakt .ml-rm{height:20px;padding:0 7px}#mosaikLeiste.ml-kompakt .ml-step i{width:14px;height:14px;font-size:9px}#mosaikLeistePop{top:30px}' +
+      '#mosaikLeiste.ml-eng .ml-marke,#mosaikLeiste.ml-eng .ml-obj,#mosaikLeiste.ml-eng .ml-rm span{display:none}' +   // passt nicht: erst Marke, Objekt/Person, Rückmeldungstext …
+      '#mosaikLeiste.ml-enger .ml-step span,#mosaikLeiste.ml-enger .ml-home span{display:none}#mosaikLeiste.ml-enger .ml-step.hier span{display:inline}' +   // … dann die Schrittnamen (außer der eigenen App) …
+      '#mosaikLeiste.ml-engst .ml-step.hier span,#mosaikLeiste.ml-engst .ml-weiter span{display:none}#mosaikLeiste.ml-engst .ml-step{padding:0 5px}#mosaikLeiste.ml-engst .ml-proj{flex:0 1 auto;min-width:0}#mosaikLeiste.ml-engst .ml-proj b{overflow:hidden;text-overflow:ellipsis;min-width:0}' +   // … zuletzt wie auf dem Handy
       '@media (max-width:860px){#mosaikLeiste .ml-marke,#mosaikLeiste .ml-obj,#mosaikLeiste .ml-step span,#mosaikLeiste .ml-rm span{display:none}#mosaikLeiste .ml-step.hier span{display:inline}}' +
       '@media (max-width:560px){#mosaikLeiste .ml-home span,#mosaikLeiste .ml-weiter span{display:none}#mosaikLeiste .ml-rm{display:none}#mosaikLeiste .ml-step.hier span{display:none}' +
       '#mosaikLeiste{gap:4px;padding:0 6px}#mosaikLeiste .ml-steps{gap:0}#mosaikLeiste .ml-step{padding:0 5px}#mosaikLeiste .ml-proj{flex:0 1 auto;min-width:0;padding:0 6px}#mosaikLeiste .ml-proj b{overflow:hidden;text-overflow:ellipsis;min-width:0}}' +   // fünf Schritte passen auch auf 360 px
@@ -1473,6 +1476,14 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       }
     }
     bar.appendChild(rmLink('ml-rm'));
+    passen();
+  }
+  /* Lange Projektnamen, Objekt und Person: Passt die Leiste nicht in die Breite, erst die Schrittnamen ausblenden, dann mehr – nie waagrecht scrollen */
+  function passen(){
+    if (!bar) return;
+    bar.classList.remove('ml-eng', 'ml-enger', 'ml-engst');
+    var zuBreit = function(){ return bar.scrollWidth > bar.clientWidth + 1; };
+    ['ml-eng', 'ml-enger', 'ml-engst'].some(function(k){ if (!zuBreit()) return true; bar.classList.add(k); return false; });
   }
   async function aktualisieren(){
     var n = urlName();
@@ -1502,6 +1513,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       window.addEventListener('focus', aktualisieren);
       document.addEventListener('visibilitychange', function(){ if (!document.hidden) aktualisieren(); });
       window.addEventListener('popstate', aktualisieren);
+      window.addEventListener('resize', function(){ clearTimeout(passen.t); passen.t = setTimeout(passen, 100); });
       document.addEventListener('click', function(ev){ if (pop && !pop.contains(ev.target)) schliessePop(); });
       document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && pop){ var b = bar.querySelector('.ml-proj'); schliessePop(); if (b) b.focus(); } });
       timer = setInterval(function(){ if (!document.hidden) aktualisieren(); }, 20000);
