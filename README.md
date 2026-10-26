@@ -4,11 +4,11 @@
 
 Erfasst je Projekt, was in die Rechnung gehört – mit den Positionsnummern der Rechnung, zum Übertragen ins Rechnungsprogramm. Die Rechnung selbst (Nummer, Umsatzsteuer, Archiv) bleibt im Rechnungsprogramm.
 
-**App öffnen:** https://kaspersebastian83-dot.github.io/aufwandkit/ · aktuelle Version **1.9.0** · Schritt für Schritt im [Handbuch](https://kaspersebastian83-dot.github.io/aidkit/#app-belegkit) (Änderungen: Klick auf die Versionsnummer in der App)
+**App öffnen:** https://kaspersebastian83-dot.github.io/aufwandkit/ · aktuelle Version **1.10.0** · Schritt für Schritt im [Handbuch](https://kaspersebastian83-dot.github.io/aidkit/#app-belegkit) (Änderungen: Klick auf die Versionsnummer in der App)
 
 Schritt ④ der Büro-App-Suite **Spektron**: **Projektzentrale** (Absprung „Zeiten & Abrechnung“), **LabelKit**, **FotoKit**, **PlanKit**, dazu ohne Projektbezug **SpesenKit** (monatliche Spesenabrechnung je Person). Übersicht im [README der Projektzentrale](https://github.com/kaspersebastian83-dot/Projektzentrale#readme). Alles läuft im Browser (Chrome oder Edge) direkt auf dem Projektordner; nichts wird hochgeladen.
 
-- **Leiste oben (ab 1.3):** wie in LabelKit, FotoKit und PlanKit – Projekt mit Wechsel zu den zuletzt geöffneten, die vier Arbeitsschritte mit Haken und „Weiter: …“.
+- **Leiste oben (ab 1.3):** wie in LabelKit, FotoKit, ResultKit und PlanKit – Projekt mit Wechsel zu den zuletzt geöffneten, die fünf Arbeitsschritte (ResultKit ab 1.10) mit Haken und „Weiter: …“.
 - **Projektdaten (ab 1.2):** Objekt, Auftraggeber und Schaden-Nr. aus `_Projekt.json` stehen oben auf jeder Seite und im gespeicherten Stand (nur Ansicht, geändert wird in der Projektzentrale).
 - **Kürzel (ab 1.1.1):** wird mit LabelKit geteilt – einmal eintragen, gilt in beiden Apps.
 
