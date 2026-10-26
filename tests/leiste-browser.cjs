@@ -7,7 +7,7 @@ const http = require('node:http');
 const path = require('node:path');
 const playwright = require('playwright');
 
-const APP = 'beleg';                                  // label | fotos | plan | beleg
+const APP = 'beleg';                                  // label | fotos | ergebnis | plan | beleg
 const name = process.argv[2] || 'chromium';
 const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'));
 const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
@@ -49,6 +49,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
     await put(archiv, '_Spektron-Mitarbeiter.json', JSON.stringify({format: 'spektron-mitarbeiter', version: 1, personen: [{ordnerKuerzel: 'Abc', name: 'Anna Beispiel', aktiv: true}]}));   // erfundene Person
     await put(await pa.getDirectoryHandle('Laboraufträge', {create: true}), '26.0142_Daten.json', '{}');
     await put(await pa.getDirectoryHandle('Fotos', {create: true}), '_Bildumbenenner.json', '{}');
+    await put(await pa.getDirectoryHandle('Laborergebnisse', {create: true}), '_Ergebnisse.json', '{}');   // ResultKit: übernommen
     await new Promise((res, rej) => { const q = indexedDB.open('mosaik-suite', 1); q.onupgradeneeded = () => q.result.createObjectStore('kv');
       q.onsuccess = () => { const t = q.result.transaction('kv', 'readwrite'); t.objectStore('kv').put(archiv, 'archiv'); t.objectStore('kv').put([a, b], 'zuletzt'); t.oncomplete = () => res(); t.onerror = () => rej(t.error); }; q.onerror = () => rej(q.error); });
   }, [A, B]);
@@ -61,16 +62,17 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   assert.equal(await weiterOhne.getAttribute('href'), '#projekt=' + encodeURIComponent(A));
   assert.equal(new URL(await page.locator('#mosaikLeiste a.ml-rm').getAttribute('href'), 'http://x/app/').searchParams.has('projekt'), false, 'ohne Projekt keine Projektnummer');
 
-  // 2) mit Projekt: Name, Objekt, vier Schritte mit Haken, nächster Schritt
+  // 2) mit Projekt: Name, Objekt, fünf Schritte mit Haken, nächster Schritt
   await page.goto(url + '?projekt=' + encodeURIComponent(A));
   await page.waitForSelector('#mosaikLeiste .ml-obj', {timeout: 8000});
   const txt = (await leiste.textContent()).replace(/\s+/g, ' ');
   assert.match(txt, /26\.0142 Teststadt/); assert.match(txt, /EFH, Musterweg 7, 52525 Heinsberg/);
   await leiste.locator('.ml-wer', {hasText: 'Anna Beispiel'}).waitFor({timeout: 8000});   // zuständige Person (Mitarbeiterliste + _Projekt.json)
-  for (const n of ['LabelKit', 'FotoKit', 'PlanKit', 'BelegKit']) assert.match(txt, new RegExp(n));
-  const schritt = id => leiste.locator('.ml-step', {hasText: {label: 'LabelKit', fotos: 'FotoKit', plan: 'PlanKit', beleg: 'BelegKit'}[id]});
+  for (const n of ['LabelKit', 'FotoKit', 'ResultKit', 'PlanKit', 'BelegKit']) assert.match(txt, new RegExp(n));
+  const schritt = id => leiste.locator('.ml-step', {hasText: {label: 'LabelKit', fotos: 'FotoKit', ergebnis: 'ResultKit', plan: 'PlanKit', beleg: 'BelegKit'}[id]});
   assert.ok(await schritt('label').evaluate(e => e.classList.contains('done')), 'LabelKit erledigt');
   assert.ok(await schritt('fotos').evaluate(e => e.classList.contains('done')), 'FotoKit erledigt');
+  assert.ok(await schritt('ergebnis').evaluate(e => e.classList.contains('done')), 'ResultKit erledigt (_Ergebnisse.json)');
   assert.ok(!(await schritt('plan').evaluate(e => e.classList.contains('done'))), 'PlanKit offen');
   assert.ok(await schritt(APP).evaluate(e => e.classList.contains('hier')), 'diese App ist markiert');
   assert.equal(await leiste.locator('.ml-step.hier').getAttribute('aria-current'), 'page');
@@ -79,7 +81,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   assert.match(await leiste.locator('.ml-weiter').getAttribute('href'), /#projekt=26\.0142%20Teststadt$/);
   assert.equal(await leiste.locator('.ml-weiter').getAttribute('target'), APP === 'plan' ? 'aufwandkit' : 'plankit');
   // Schritte der anderen Apps sind Links mit demselben Projekt, die eigene App ist keiner
-  assert.equal(await leiste.locator('a.ml-step').count(), 3);
+  assert.equal(await leiste.locator('a.ml-step').count(), 4);
   // „💬 Rückmeldung“: Programm, Version, nur die Projektnummer (kein Ort), eigenes Fenster
   const rm = leiste.locator('a.ml-rm'), rmUrl = new URL(await rm.getAttribute('href'), 'http://x/app/');
   assert.equal(rmUrl.pathname, '/rueckmeldung/');
