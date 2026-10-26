@@ -1401,7 +1401,8 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       '#mosaikLeistePop a.aktuell{font-weight:650;background:#f2f6f9}#mosaikLeistePop hr{border:0;border-top:1px solid #e2e9ee;margin:5px 4px}' +
       '#mosaikLeiste.ml-kompakt{height:24px;font-size:12px;padding:0 8px}#mosaikLeiste.ml-kompakt .ml-home,#mosaikLeiste.ml-kompakt .ml-proj,#mosaikLeiste.ml-kompakt .ml-step,#mosaikLeiste.ml-kompakt .ml-weiter,#mosaikLeiste.ml-kompakt .ml-rm{height:20px;padding:0 7px}#mosaikLeiste.ml-kompakt .ml-step i{width:14px;height:14px;font-size:9px}#mosaikLeistePop{top:30px}' +
       '@media (max-width:860px){#mosaikLeiste .ml-marke,#mosaikLeiste .ml-obj,#mosaikLeiste .ml-step span,#mosaikLeiste .ml-rm span{display:none}#mosaikLeiste .ml-step.hier span{display:inline}}' +
-      '@media (max-width:560px){#mosaikLeiste .ml-home span,#mosaikLeiste .ml-weiter span{display:none}#mosaikLeiste .ml-rm{display:none}#mosaikLeiste .ml-step.hier span{display:none}}' +
+      '@media (max-width:560px){#mosaikLeiste .ml-home span,#mosaikLeiste .ml-weiter span{display:none}#mosaikLeiste .ml-rm{display:none}#mosaikLeiste .ml-step.hier span{display:none}' +
+      '#mosaikLeiste{gap:4px;padding:0 6px}#mosaikLeiste .ml-steps{gap:0}#mosaikLeiste .ml-step{padding:0 5px}#mosaikLeiste .ml-proj{flex:0 1 auto;min-width:0;padding:0 6px}#mosaikLeiste .ml-proj b{overflow:hidden;text-overflow:ellipsis;min-width:0}}' +   // fünf Schritte passen auch auf 360 px
       '@media print{#mosaikLeiste,#mosaikLeistePop{display:none!important}}';
     document.head.appendChild(st);
   }
