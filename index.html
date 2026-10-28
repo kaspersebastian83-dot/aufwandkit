@@ -124,6 +124,7 @@ table.eing input[type=text],table.eing select{font-size:13px}
 td.pflicht-offen>input{border-color:#d9a400!important;background:#fff8e1;box-shadow:inset 3px 0 0 #d9a400}
 @media (prefers-color-scheme:dark){td.pflicht-offen>input{background:rgba(217,164,0,.12)}}
 select.offen{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 10%,var(--panel2))}
+.buero-hinweis{font-size:13px;margin:10px 0 2px;padding:7px 12px;border-radius:8px;border:1px solid color-mix(in srgb,var(--accent, #3f7cc0) 30%,var(--line));background:color-mix(in srgb,var(--accent, #3f7cc0) 7%,var(--panel))}
 .hinweise{background:color-mix(in srgb,var(--warn) 9%,var(--panel));border:1px solid color-mix(in srgb,var(--warn) 35%,var(--line));border-radius:8px;padding:8px 14px;font-size:13px;margin:6px 0 12px}
 .hinweise ul{margin:4px 0 0;padding-left:20px}
 table.abr td{font-size:13.5px}
@@ -452,9 +453,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.10.1';
-const APP_DATE = '2026-10-26';
+const APP_VERSION = '1.11.0';
+const APP_DATE = '2026-10-28';
 const CHANGELOG = [
+  ['1.11.0', '28.10.2026', 'Hinweis bei „Stand speichern“: Das Büro schreibt die Rechnung nach dem neuesten gespeicherten Stand (BüroKit 1.1 zeigt ihn unter „Abrechnung“ und warnt, wenn sich danach etwas geändert hat). Also vor „Ans Büro“ und nach jeder Änderung an Zeiten, Proben, Berichten oder Fotos neu speichern. An Berechnung und Dateien ändert sich nichts.'],
   ['1.10.1', '26.10.2026', 'Behoben: Zweimal schnell „Neu einlesen“ oder ein Projektwechsel während des Einlesens zählte Stunden und Berichtsseiten doppelt und meldete „Mehrere Zeitdateien“ – es gilt jetzt nur noch das zuletzt begonnene Einlesen, der Knopf ist währenddessen gesperrt. 3.002 mit Sätzen „0“ (kostenlos, wie im Hinweis empfohlen) zeigt jetzt 0,00 € statt „kein Betrag“; Summe Titel 3 und Netto erscheinen wieder.'],
   ['1.10.0', '26.10.2026', 'Spektron-Leiste mit fünftem Schritt ResultKit (zwischen FotoKit und PlanKit): Laborergebnisse des Projekts – was zurück ist und was noch fehlt. Haken, sobald die Ergebnisse in ResultKit übernommen sind. An BelegKit selbst ändert sich nichts.'],
   ['1.9.0', '26.10.2026', 'Spektron-Leiste oben: rechts „💬 Rückmeldung“ (bei schmalem Fenster nur 💬, auf dem Handy im Projektmenü ▾). Öffnet das Rückmeldeformular in einem eigenen Fenster; Programm, Version und – bei geöffnetem Projekt – die Projektnummer sind schon eingetragen (nur die Nummer, kein Ort). Die Leiste ist in allen Apps gleich.'],
@@ -691,8 +693,10 @@ async function ladeAlles(){
   try{ const e = await liesJson(archiv, EINST_DATEI); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); N.einst = AW.einstellungen(null); N.einstAusDatei = false; N.einstGesperrt = true; }
   const abr = await unter(proj.dir, ORDNER.abr, false);
-  N.alle = [];
+  N.alle = []; N.letzterStand = '';
   if (abr) for await (const h of abr.values()){
+    const st = h.kind === 'file' && /^.+_Aufwand_(\d{4}-\d{2}-\d{2})(?:_(\d+))?\.json$/i.exec(h.name);   // neuester „Stand speichern“ (nur für den Hinweis fürs Büro)
+    if (st){ const k = st[1] + String(+(st[2] || 1)).padStart(4, '0'); if (!N.letzterStandKey || k > N.letzterStandKey){ N.letzterStandKey = k; N.letzterStand = h.name; } continue; }
     const m = /^Aufwand_([A-Za-zÄÖÜäöü]{1,6})\.json$/.exec(h.kind === 'file' ? h.name : '');
     if (!m) continue;
     try{ const j = await TimeStore.read(abr, h.name, {projekt:proj.nr,kuerzel:m[1].toUpperCase()}); if(!j.exists)throw Error('Datei während des Lesens verschwunden'); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: j.data.eintraege, geaendert: j.modified, revision:j.revision, daten:j.data }); }
@@ -1114,8 +1118,9 @@ function zeichneAbrechnung(){
     <table class="abr"><thead><tr><th>Position</th><th>Text</th><th class="r">Menge</th><th>Einh.</th>${P ? '<th class="r">Einzelpreis</th><th class="r">Gesamt</th>' : ''}</tr></thead>${tab || '<tbody><tr><td colspan="4" class="m">Noch nichts erfasst.</td></tr></tbody>'}
     ${P && a.netto != null ? `<tfoot><tr><td></td><td>Netto (Vorschau)</td><td colspan="3"></td><td class="r">${AW.euro(a.netto)}</td></tr></tfoot>` : ''}</table>
     <div class="zeile keindruck" style="margin-top:12px"><button class="primary" id="aKopie" title="Position, Text, Menge, Einheit – zum Einfügen in das Rechnungsprogramm oder Excel">⧉ Kopieren</button>
-      <button id="aDruck">🖨 Drucken</button><button id="aStand" title="Abrechnung mit Prüfsummen aller Quellen in „Abrechnung“ ablegen (nie überschreibend)">💾 Stand speichern</button>
+      <button id="aDruck">🖨 Drucken</button><button id="aStand" title="Abrechnung mit Prüfsummen aller Quellen in „Abrechnung“ ablegen (nie überschreibend) – das Büro schreibt die Rechnung nach dem neuesten Stand">💾 Stand speichern</button>
       <label class="m"><input type="checkbox" id="aPreise" ${P ? 'checked' : ''}> Preise als Vorschau zeigen</label></div>
+    <p class="buero-hinweis keindruck">📨 <b>Fürs Büro:</b> Das Büro schreibt die Rechnung nach dem <b>zuletzt gespeicherten Stand</b> (BüroKit → „Abrechnung“). Also vor „Ans Büro“ und nach jeder Änderung an Zeiten, Proben, Berichten oder Fotos <b>„💾 Stand speichern“</b>.${A.letzterStand ? ` <span class="m">Zuletzt gespeichert: ${esc(A.letzterStand)}</span>` : ' <span class="m">Noch kein Stand gespeichert.</span>'}</p>
     <p class="m keindruck">Die Rechnung selbst entsteht im Rechnungsprogramm. Preise hier nur zur Kontrolle (Sätze unter „Einstellungen“).</p></div>`;
   $('aPreise').onchange = e => { A.preise = e.target.checked; try{ localStorage.setItem('aufwandkit-preise', A.preise ? '1' : '0'); }catch(x){} zeichneAbrechnung(); };
   $('aDruck').onclick = () => window.print();
@@ -1148,7 +1153,8 @@ async function standSpeichern(a){
     projektdaten: projektdaten(), titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
   const w = await (await abr.getFileHandle(csvName, { create: true })).createWritable();
   await w.write(AW.csv(a, [['Projekt', A.proj.name], ...[['Objekt', projektdaten().objekt], ['Auftraggeber', projektdaten().auftraggeber], ['Schaden-Nr. des Auftraggebers', projektdaten().schadennummer]].filter(x => x[1]), ['Stand', `${zeitDe(jetzt)} (${A.kz.toUpperCase()}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
-  status(`✓ Stand gespeichert: „${ORDNER.abr}/${json}“ und „${csvName}“`, 'ok');
+  A.letzterStand = json; zeichneAbrechnung();
+  status(`✓ Stand gespeichert: „${ORDNER.abr}/${json}“ und „${csvName}“ – das Büro rechnet danach ab`, 'ok');
 }
 
 function zeichneEinst(){
