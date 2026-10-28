@@ -1130,30 +1130,37 @@ function zeichneAbrechnung(){
 /** Stand ablegen: JSON (vollständig, mit SHA-256 jeder Quelle) und CSV, beide nie überschreibend. */
 async function standSpeichern(a){
   if (!AW.kuerzelOk(A.kz)){ status('Bitte oben Ihr Kürzel eintragen.', 'err'); return; }
-  status('… Prüfsummen werden berechnet');
+  // Alles beim Klick festhalten: Wird währenddessen das Projekt gewechselt, gehört der Stand trotzdem vollständig zum
+  // ursprünglichen Projekt, und Anzeige/Status des neuen Projekts bleiben unberührt.
+  const proj = A.proj, archiv = A.archiv, kz = A.kz.toUpperCase(), labelkit = A.labelkit, pd = projektdaten();
+  const pb = (A.pdatei && A.pdatei.berichte) || {}, berichte = A.berichte.slice();
+  const noch = () => A.proj === proj;
+  if (noch()) status('… Prüfsummen werden berechnet');
   const quellen = [], hash = async (pfad, file) => quellen.push({ datei: pfad, bytes: file.size, geaendert: new Date(file.lastModified).toISOString(), sha256: await sha256Hex(await file.arrayBuffer()) });
-  const abr = await unter(A.proj.dir, ORDNER.abr, true);
-  try{ await hash('_Projekt.json', await (await A.proj.dir.getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
+  const abr = await unter(proj.dir, ORDNER.abr, true);
+  try{ await hash('_Projekt.json', await (await proj.dir.getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
   for await (const h of abr.values()) if (h.kind === 'file' && (/^Aufwand_.*\.json$/.test(h.name) || h.name === PROJ_DATEI)) await hash(ORDNER.abr + '/' + h.name, await h.getFile());
-  if (A.labelkit) await hash(ORDNER.lab + '/' + A.labelkit.datei.name, A.labelkit.datei);
-  const fo = await unter(A.proj.dir, ORDNER.fotos, false); if (fo) try{ await hash(ORDNER.fotos + '/_Bildumbenenner.json', await (await fo.getFileHandle('_Bildumbenenner.json')).getFile()); }catch(e){}
-  const mi = await unter(A.proj.dir, ORDNER.mitteil, false), pb = A.pdatei.berichte || {};
-  if (mi) for (const b of A.berichte.filter(x => (pb[x.stamm] || {}).abrechnen)) for (const n of b.dateien) await hash(ORDNER.mitteil + '/' + n, await (await mi.getFileHandle(n)).getFile());
-  try{ await hash(EINST_DATEI + ' (Archivordner)', await (await A.archiv.getFileHandle(EINST_DATEI)).getFile()); }catch(e){}
+  if (labelkit) await hash(ORDNER.lab + '/' + labelkit.datei.name, labelkit.datei);
+  const fo = await unter(proj.dir, ORDNER.fotos, false); if (fo) try{ await hash(ORDNER.fotos + '/_Bildumbenenner.json', await (await fo.getFileHandle('_Bildumbenenner.json')).getFile()); }catch(e){}
+  const mi = await unter(proj.dir, ORDNER.mitteil, false);
+  if (mi) for (const b of berichte.filter(x => (pb[x.stamm] || {}).abrechnen)) for (const n of b.dateien) await hash(ORDNER.mitteil + '/' + n, await (await mi.getFileHandle(n)).getFile());
+  try{ await hash(EINST_DATEI + ' (Archivordner)', await (await archiv.getFileHandle(EINST_DATEI)).getFile()); }catch(e){}
   const namen = []; for await (const h of abr.values()) namen.push(h.name);
   const gibtEs = async n => { try{ await abr.getFileHandle(n); return true; }catch(e){ return false; } };
   let json, csvName;
   for (;;){   // nie überschreiben – auch nicht, wenn die Ordnerliste veraltet ist
-    json = AW.dateiname(A.proj.nr, 'Aufwand', heuteIso(), 'json', namen); csvName = json.replace(/\.json$/, '.csv');
+    json = AW.dateiname(proj.nr, 'Aufwand', heuteIso(), 'json', namen); csvName = json.replace(/\.json$/, '.csv');
     if (!(await gibtEs(json)) && !(await gibtEs(csvName))) break;
     namen.push(json, csvName);
   }
   const jetzt = new Date().toISOString();
-  await schreibJson(abr, json, { format: 'aufwandkit-stand', version: 1, projekt: A.proj.name, erstellt: jetzt, von: A.kz.toUpperCase(), programm: APP_NAME + ' ' + APP_VERSION,
-    projektdaten: projektdaten(), titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
+  await schreibJson(abr, json, { format: 'aufwandkit-stand', version: 1, projekt: proj.name, erstellt: jetzt, von: kz, programm: APP_NAME + ' ' + APP_VERSION,
+    projektdaten: pd, titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
   const w = await (await abr.getFileHandle(csvName, { create: true })).createWritable();
-  await w.write(AW.csv(a, [['Projekt', A.proj.name], ...[['Objekt', projektdaten().objekt], ['Auftraggeber', projektdaten().auftraggeber], ['Schaden-Nr. des Auftraggebers', projektdaten().schadennummer]].filter(x => x[1]), ['Stand', `${zeitDe(jetzt)} (${A.kz.toUpperCase()}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
-  A.letzterStand = json; zeichneAbrechnung();
+  await w.write(AW.csv(a, [['Projekt', proj.name], ...[['Objekt', pd.objekt], ['Auftraggeber', pd.auftraggeber], ['Schaden-Nr. des Auftraggebers', pd.schadennummer]].filter(x => x[1]), ['Stand', `${zeitDe(jetzt)} (${kz}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
+  if (!noch()){ status(`✓ Stand für ${proj.nr} gespeichert: „${ORDNER.abr}/${json}“`, 'ok'); return; }
+  A.letzterStand = json;
+  if ($('aStand')) zeichneAbrechnung();   // nur, wenn die Abrechnung noch zu sehen ist
   status(`✓ Stand gespeichert: „${ORDNER.abr}/${json}“ und „${csvName}“ – das Büro rechnet danach ab`, 'ok');
 }
 
