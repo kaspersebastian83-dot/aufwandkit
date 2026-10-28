@@ -158,6 +158,12 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.equal(await S.istSpektronProjekt(baue('25.0001 X', { '_Spektron': 'x' })), false);
   });
 
+  await ok('Ordner ohne Auflistung (Testobjekt) gilt als leer: bisheriger Ort', async () => {
+    const lab = new Ordner('Laboraufträge'), p = { name: '26.0999 Testort', kind: 'directory', getDirectoryHandle: async () => lab, getFileHandle: async () => { throw fehler('NotFoundError', 'x'); } };
+    const o = await S.ort(p, 'labelkit'); assert.equal(o.wo, 'alt'); assert.equal(o.dir, lab);
+    assert.equal(await S.istSpektronProjekt({ name: '25.0001 X', getDirectoryHandle: async () => lab }), false);
+  });
+
   await ok('Unbekannter Bereich wird abgelehnt', async () => {
     await assert.rejects(S.ort(baue('26.0566 X'), 'gibtsnicht'), /Unbekannter Spektron-Bereich/);
   });
