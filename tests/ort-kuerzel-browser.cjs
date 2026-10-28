@@ -18,7 +18,7 @@ const LISTE = {format: 'spektron-mitarbeiter', version: 1, personen: [
 
 (async () => {
   const server = http.createServer((req, res) => {
-    if (new URL(req.url, 'http://x').pathname === '/time-store.js'){ res.writeHead(200, {'content-type': 'application/javascript'}); res.end(fs.readFileSync(path.join(__dirname, '..', 'time-store.js'))); return; }
+    if (['/time-store.js','/spektron-ordner.js'].includes(new URL(req.url,'http://x').pathname)){ res.writeHead(200, {'content-type': 'application/javascript'}); res.end(fs.readFileSync(path.join(__dirname,'..',new URL(req.url,'http://x').pathname.slice(1)))); return; }
     res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(html);
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));

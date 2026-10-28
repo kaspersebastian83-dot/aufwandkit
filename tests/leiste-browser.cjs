@@ -13,7 +13,7 @@ const html = fs.readFileSync(path.join(__dirname, '..', 'index.html'));
 const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
 
 (async () => {
-  const server = http.createServer((req, res) => { if(new URL(req.url,'http://x').pathname==='/time-store.js'){res.writeHead(200,{'content-type':'application/javascript'});res.end(fs.readFileSync(path.join(__dirname,'..','time-store.js')));return;} res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(html); });
+  const server = http.createServer((req, res) => { if(['/time-store.js','/spektron-ordner.js'].includes(new URL(req.url,'http://x').pathname)){res.writeHead(200,{'content-type':'application/javascript'});res.end(fs.readFileSync(path.join(__dirname,'..',new URL(req.url,'http://x').pathname.slice(1))));return;} res.writeHead(200, {'content-type': 'text/html; charset=utf-8'}); res.end(html); });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${server.address().port}/index.html`;
   const browser = await playwright[name].launch();

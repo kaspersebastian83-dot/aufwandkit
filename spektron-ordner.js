@@ -74,7 +74,11 @@ function projektKey(name){
 }
 const AB_KEY = projektKey(AB);
 
+/* Ein Ordner, der sich nicht auflisten lässt (nur Testobjekte – echte Ordner können das immer), gilt als leer;
+   ein solcher Projektordner bleibt immer beim bisherigen Ort. */
+const auflistbar = dir => !!dir && typeof dir.values === 'function';
 async function kind(dir, name){
+  if (!auflistbar(dir)) return null;
   for await (const h of dir.values()) if (gleich(h.name, name)) return h;
   return null;
 }
@@ -95,7 +99,7 @@ async function unter(dir, pfad, anlegen){
 }
 async function passende(dir, b){
   const r = [];
-  if (dir) for await (const h of dir.values()) if (b.passt(h.name, h.kind)) r.push({ name: h.name, art: h.kind });
+  if (auflistbar(dir)) for await (const h of dir.values()) if (b.passt(h.name, h.kind)) r.push({ name: h.name, art: h.kind });
   return r;
 }
 async function hatSpektron(projektDir){
@@ -150,7 +154,7 @@ async function ort(projektDir, bereich, optionen){
     return { dir: dir || null, wo, pfad: (wo === 'neu' ? neuPfad : altPfad).join('/'), konflikt: !!konflikt, umgezogen: !!umgezogen, bereich };
   };
   const altDir = await unter(projektDir, altPfad, false);
-  if (!(await istSpektronProjekt(projektDir))) return fertig('alt', altDir, false, false);
+  if (!auflistbar(projektDir) || !(await istSpektronProjekt(projektDir))) return fertig('alt', altDir, false, false);
   const sp = await hatSpektron(projektDir);
   const neuDir = sp ? await unter(sp, b.neu, false) : null;
   const altHat = (await passende(altDir, b)).length > 0;

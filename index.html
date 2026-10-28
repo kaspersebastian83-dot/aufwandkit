@@ -171,6 +171,7 @@ table.abr tr.summe td,table.abr tfoot td{font-weight:600}
 <div id="support">Dieser Browser kann nicht auf Ordner zugreifen. Bitte <b>Google Chrome</b> oder <b>Microsoft Edge</b> verwenden.</div>
 <main id="inhalt"></main>
 <div id="dlgBack"><div id="dlg"></div></div>
+<script src="spektron-ordner.js"></script>
 <script src="time-store.js"></script>
 <script>
 /* AUFWAND-LOGIK-START */
@@ -453,9 +454,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 const APP_DATE = '2026-10-28';
 const CHANGELOG = [
+  ['1.12.0', '28.10.2026', 'Vorbereitung „Spektron-Ordner“: Die App-Daten eines Projekts ziehen später in den Unterordner „_Spektron“. BelegKit findet Zeiten, Berichtsangaben, gespeicherte Stände und die Daten von LabelKit, FotoKit und Projektzentrale jetzt an beiden Orten; die CSV der Stände bleiben im Ordner „Abrechnung“. Bis zum Umzug ändert sich nichts.'],
   ['1.11.0', '28.10.2026', 'Hinweis bei „Stand speichern“: Das Büro schreibt die Rechnung nach dem neuesten gespeicherten Stand (BüroKit 1.1 zeigt ihn unter „Abrechnung“ und warnt, wenn sich danach etwas geändert hat). Also vor „Ans Büro“ und nach jeder Änderung an Zeiten, Proben, Berichten oder Fotos neu speichern. An Berechnung und Dateien ändert sich nichts.'],
   ['1.10.1', '26.10.2026', 'Behoben: Zweimal schnell „Neu einlesen“ oder ein Projektwechsel während des Einlesens zählte Stunden und Berichtsseiten doppelt und meldete „Mehrere Zeitdateien“ – es gilt jetzt nur noch das zuletzt begonnene Einlesen, der Knopf ist währenddessen gesperrt. 3.002 mit Sätzen „0“ (kostenlos, wie im Hinweis empfohlen) zeigt jetzt 0,00 € statt „kein Betrag“; Summe Titel 3 und Netto erscheinen wieder.'],
   ['1.10.0', '26.10.2026', 'Spektron-Leiste mit fünftem Schritt ResultKit (zwischen FotoKit und PlanKit): Laborergebnisse des Projekts – was zurück ist und was noch fehlt. Haken, sobald die Ergebnisse in ResultKit übernommen sind. An BelegKit selbst ändert sich nichts.'],
@@ -585,6 +587,14 @@ async function unter(dir, name, anlegen){
   for await (const h of dir.values()) if (h.kind === 'directory' && norm(h.name) === norm(name)) return h;
   return anlegen ? dir.getDirectoryHandle(name, { create: true }) : null;
 }
+/* Spektron-Ordner (spektron-ordner.js): App-Daten künftig in „<Projekt>/_Spektron/…“ – Zeiten und Stände (JSON) in
+   „_Spektron/BelegKit“, die CSV bleiben in „Abrechnung“. Ohne „_Spektron“ (oder ohne Modul) gilt wie bisher der Projektordner.
+   In gespeicherten Ständen stehen weiter die festen Namen („Abrechnung/…“, „Laboraufträge/…“, „Fotos/…“, „_Projekt.json“). */
+async function bereich(proj, b, anlegen){
+  const SO = typeof window !== 'undefined' ? window.SpektronOrdner : null;
+  if (!SO) return b === 'projekt' ? proj.dir : unter(proj.dir, { belegkit: ORDNER.abr, labelkit: ORDNER.lab, fotokit: ORDNER.fotos }[b], anlegen);
+  return (await SO.ort(proj.dir, b, { anlegen: !!anlegen })).dir;
+}
 async function liesJson(dir, name){
   if (!dir) return null;
   try{
@@ -692,7 +702,7 @@ async function ladeAlles(){
   const fehler = [], quellen = [];   // quellen: Lesefehler, die in der Abrechnung als Hinweis stehen müssen (fehlende Zeiten, Proben, Seiten)
   try{ const e = await liesJson(archiv, EINST_DATEI); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); N.einst = AW.einstellungen(null); N.einstAusDatei = false; N.einstGesperrt = true; }
-  const abr = await unter(proj.dir, ORDNER.abr, false);
+  const abr = await bereich(proj, 'belegkit', false);
   N.alle = []; N.letzterStand = '';
   if (abr) for await (const h of abr.values()){
     const st = h.kind === 'file' && /^.+_Aufwand_(\d{4}-\d{2}-\d{2})(?:_(\d+))?\.json$/i.exec(h.name);   // neuester „Stand speichern“ (nur für den Hinweis fürs Büro)
@@ -706,11 +716,11 @@ async function ladeAlles(){
   catch(e){ fehler.push(e.message); quellen.push(`Berichtsangaben nicht lesbar – angekreuzte Berichte und Seitenzahlen fehlen: ${e.message}`); N.pdatei = { berichte: {} }; N.pdateiGesperrt = true; }
   // Gemeinsame Projektdaten (Projektzentrale): nur lesen und anzeigen – bearbeitet wird in der Projektzentrale
   N.pj = null;
-  try{ const j = await liesJson(proj.dir, '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') N.pj = j.daten; }
+  try{ const j = await liesJson(await bereich(proj, 'projekt'), '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') N.pj = j.daten; }
   catch(e){ fehler.push(e.message); }
   // LabelKit: neueste …_Daten.json
   N.labelkit = null;
-  const lab = await unter(proj.dir, ORDNER.lab, false);
+  const lab = await bereich(proj, 'labelkit', false);
   if (lab){
     let best = null;
     for await (const h of lab.values()) if (h.kind === 'file' && /_Daten\.json$/i.test(h.name)){ const f = await h.getFile(); if (!best || f.lastModified > best.lastModified) best = f; }
@@ -730,7 +740,7 @@ async function ladeAlles(){
       }
     }
     let aus = 0; const fh = [];
-    try{ const j = await liesJson(fo, '_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
+    try{ const j = await liesJson(await bereich(proj, 'fotokit', false), '_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
     catch(e){ fh.push(`„Fotos/_Bildumbenenner.json“ ist nicht lesbar – in FotoKit aussortierte Fotos können nicht abgezogen werden, alle ${namen.length} Bilder sind gezählt.`); }
     if (unterOrdner.length) fh.push(`Im Ordner „Fotos“ liegen Bilder in Unterordnern (${unterOrdner.join(', ')}) – gezählt werden nur die Fotos direkt in „Fotos“.`);
     N.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
@@ -798,7 +808,7 @@ async function speichereMeine(){
   const proj=A.proj,kz=A.kz.toUpperCase(),identity={projekt:proj.nr,kuerzel:kz},name=A.meineDateiname||`Aufwand_${kz}.json`;
   const wiederherstellen=A.meineDefekt,stand=meineAenderung,draft=meineDateiDaten(),draftIds=new Set(draft.eintraege.map(e=>e.id));
   let expected=A.meineRevision;
-  const abr=await unter(proj.dir,ORDNER.abr,!wiederherstellen);
+  const abr=await bereich(proj,'belegkit',!wiederherstellen);
   if(wiederherstellen){
     // Preserve the existing recovery after a read failure: only a repaired, valid
     // source with disjoint or identical IDs may be combined. Never replace it blind.
@@ -833,7 +843,7 @@ async function speichereMeine(){
 async function aktualisiereZeitFassungen(){
   const button=$('zFassungen'),proj=A.proj,kz=A.kz;if(!button||!proj)return;
   try{
-    const abr=await unter(proj.dir,ORDNER.abr,false),v=await TimeStore.versions(abr,A.meineDateiname,{projekt:proj.nr,kuerzel:kz.toUpperCase()});
+    const abr=await bereich(proj,'belegkit',false),v=await TimeStore.versions(abr,A.meineDateiname,{projekt:proj.nr,kuerzel:kz.toUpperCase()});
     if(button.isConnected&&A.proj===proj&&A.kz===kz)button.textContent='Zeitfassungen prüfen'+(v.items.length?' ('+v.items.length+' abweichend)':'')+(v.invalid.length?' · beschädigte Sicherungen':'');
   }catch(e){button.textContent='Zeitfassungen prüfen · Lesen fehlgeschlagen';button.title=e.message;}
 }
@@ -848,7 +858,7 @@ async function pruefeZeitFassungen(){
   try{
     await A.schreib.catch(()=>{});
     if(A.proj!==proj||A.kz.toUpperCase()!==kz)throw Error('Projekt oder Kürzel inzwischen gewechselt.');
-    const local=meineDateiDaten(),pending=meineAenderung!==meineGespeichert,abr=await unter(proj.dir,ORDNER.abr,true);
+    const local=meineDateiDaten(),pending=meineAenderung!==meineGespeichert,abr=await bereich(proj,'belegkit',true);
     const found=await TimeStore.versions(abr,name,identity);let current=null;
     try{current=TimeStore.parse(found.current,identity);}catch(e){info.textContent='Hauptdatei: '+e.message;}
     if(found.invalid.length)info.textContent+=' Beschädigte/inkompatible Sicherungen bleiben erhalten: '+found.invalid.join('; ');
@@ -898,7 +908,7 @@ async function pruefeZeitFassungen(){
 async function speichereBericht(stamm, patch){
   if (A.geladenFuer !== A.proj){ status('Das Projekt wird noch gelesen – bitte gleich noch einmal.', 'err'); return; }
   if (A.pdateiGesperrt){ status(`„${PROJ_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
-  const abr = await unter(A.proj.dir, ORDNER.abr, true), cur = await liesJson(abr, PROJ_DATEI);
+  const abr = await bereich(A.proj, 'belegkit', true), cur = await liesJson(abr, PROJ_DATEI);
   const o = Object.assign({ format: 'aufwandkit-projekt', version: 1, hinweis: 'Angaben zur Abrechnung dieses Projekts (BelegKit). Bitte nicht löschen.', berichte: {} }, cur && cur.daten);
   o.berichte = Object.assign({}, o.berichte); o.berichte[stamm] = Object.assign({}, o.berichte[stamm], patch, { geaendert: new Date().toISOString(), von: A.kz.toUpperCase() });
   o.geaendert = new Date().toISOString(); o.geaendertMit = APP_NAME + ' ' + APP_VERSION;
@@ -1137,26 +1147,26 @@ async function standSpeichern(a){
   const noch = () => A.proj === proj;
   if (noch()) status('… Prüfsummen werden berechnet');
   const quellen = [], hash = async (pfad, file) => quellen.push({ datei: pfad, bytes: file.size, geaendert: new Date(file.lastModified).toISOString(), sha256: await sha256Hex(await file.arrayBuffer()) });
-  const abr = await unter(proj.dir, ORDNER.abr, true);
-  try{ await hash('_Projekt.json', await (await proj.dir.getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
+  const abr = await bereich(proj, 'belegkit', true), csvOrdner = await unter(proj.dir, ORDNER.abr, true);   // JSON: Daten-Ort · CSV: immer „Abrechnung“
+  try{ await hash('_Projekt.json', await (await (await bereich(proj, 'projekt')).getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
   for await (const h of abr.values()) if (h.kind === 'file' && (/^Aufwand_.*\.json$/.test(h.name) || h.name === PROJ_DATEI)) await hash(ORDNER.abr + '/' + h.name, await h.getFile());
   if (labelkit) await hash(ORDNER.lab + '/' + labelkit.datei.name, labelkit.datei);
-  const fo = await unter(proj.dir, ORDNER.fotos, false); if (fo) try{ await hash(ORDNER.fotos + '/_Bildumbenenner.json', await (await fo.getFileHandle('_Bildumbenenner.json')).getFile()); }catch(e){}
+  const fo = await bereich(proj, 'fotokit', false); if (fo) try{ await hash(ORDNER.fotos + '/_Bildumbenenner.json', await (await fo.getFileHandle('_Bildumbenenner.json')).getFile()); }catch(e){}
   const mi = await unter(proj.dir, ORDNER.mitteil, false);
   if (mi) for (const b of berichte.filter(x => (pb[x.stamm] || {}).abrechnen)) for (const n of b.dateien) await hash(ORDNER.mitteil + '/' + n, await (await mi.getFileHandle(n)).getFile());
   try{ await hash(EINST_DATEI + ' (Archivordner)', await (await archiv.getFileHandle(EINST_DATEI)).getFile()); }catch(e){}
-  const namen = []; for await (const h of abr.values()) namen.push(h.name);
-  const gibtEs = async n => { try{ await abr.getFileHandle(n); return true; }catch(e){ return false; } };
+  const namen = []; for (const d of new Set([abr, csvOrdner])) for await (const h of d.values()) namen.push(h.name);
+  const gibtEs = async (d, n) => { try{ await d.getFileHandle(n); return true; }catch(e){ return false; } };
   let json, csvName;
   for (;;){   // nie überschreiben – auch nicht, wenn die Ordnerliste veraltet ist
     json = AW.dateiname(proj.nr, 'Aufwand', heuteIso(), 'json', namen); csvName = json.replace(/\.json$/, '.csv');
-    if (!(await gibtEs(json)) && !(await gibtEs(csvName))) break;
+    if (!(await gibtEs(abr, json)) && !(await gibtEs(csvOrdner, csvName))) break;
     namen.push(json, csvName);
   }
   const jetzt = new Date().toISOString();
   await schreibJson(abr, json, { format: 'aufwandkit-stand', version: 1, projekt: proj.name, erstellt: jetzt, von: kz, programm: APP_NAME + ' ' + APP_VERSION,
     projektdaten: pd, titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
-  const w = await (await abr.getFileHandle(csvName, { create: true })).createWritable();
+  const w = await (await csvOrdner.getFileHandle(csvName, { create: true })).createWritable();
   await w.write(AW.csv(a, [['Projekt', proj.name], ...[['Objekt', pd.objekt], ['Auftraggeber', pd.auftraggeber], ['Schaden-Nr. des Auftraggebers', pd.schadennummer]].filter(x => x[1]), ['Stand', `${zeitDe(jetzt)} (${kz}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
   if (!noch()){ status(`✓ Stand für ${proj.nr} gespeichert: „${ORDNER.abr}/${json}“`, 'ok'); return; }
   A.letzterStand = json;
@@ -1351,26 +1361,28 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       try{ for await (var e of arch.values()) if (e.kind === 'directory' && nfc(e.name) === nfc(name)){ proj = e; break; } }catch(e2){}
     }
     if (!proj) return null;
+    /* Spektron-Ordner (spektron-ordner.js, falls geladen): App-Daten künftig in „_Spektron/…“; sonst wie bisher. */
+    async function bereich(b, alt){ var SO = window.SpektronOrdner; if (SO) try{ return (await SO.ort(proj, b)).dir; }catch(eb){} return alt ? unterordner(proj, alt) : proj; }
     var s = { label: false, fotos: false, ergebnis: false, plan: false, beleg: false, objekt: '', anzeige: '', person: '' }, zust = null;
     var activeData = window.SpektronProjectData && window.SpektronProjectData(name);
     if (activeData){ var activeObjekt = typeof activeData.data.objekt === 'string' ? activeData.data.objekt : activeData.data.daten && activeData.data.daten.objekt; if (typeof activeObjekt === 'string') s.objekt = activeObjekt.trim(); zust = activeData.data.zustaendig; }
     else try{
-      var pj = await proj.getFileHandle('_Projekt.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); }).catch(function(){ return ''; });
+      var pj = await ((await bereich('projekt', '')) || proj).getFileHandle('_Projekt.json').then(function(f){ return f.getFile(); }).then(function(f){ return f.text(); }).catch(function(){ return ''; });
       if (pj){ var j = JSON.parse(pj), o = j && (typeof j.objekt === 'string' ? j.objekt : j.daten && j.daten.objekt); if (typeof o === 'string') s.objekt = o.trim(); zust = j && j.zustaendig; }   // Projektzentrale schreibt die Felder direkt in _Projekt.json (ältere Testdateien: unter „daten“)
     }catch(e3){}
     await personUndAnzeige(arch, s, zust);
-    try{ var fo = await unterordner(proj, 'Fotos'); if (fo) s.fotos = await fo.getFileHandle('_Bildumbenenner.json').then(function(){ return true; }, function(){ return false; }); }catch(e4){}
+    try{ var fo = await bereich('fotokit', 'Fotos'); if (fo) s.fotos = await fo.getFileHandle('_Bildumbenenner.json').then(function(){ return true; }, function(){ return false; }); }catch(e4){}
     try{
-      var la = await unterordner(proj, 'Laboraufträge');
+      var la = await bereich('labelkit', 'Laboraufträge');
       if (la) for await (var f of la.values()) if (f.kind === 'file' && /_Daten\.json$/i.test(f.name)){ s.label = true; break; }
     }catch(e5){}
-    try{ var le = await unterordner(proj, 'Laborergebnisse'); if (le) s.ergebnis = await le.getFileHandle('_Ergebnisse.json').then(function(){ return true; }, function(){ return false; }); }catch(e8){}   // ResultKit: geprüfte Ergebnisse übernommen
+    try{ var le = await bereich('resultkit', 'Laborergebnisse'); if (le) s.ergebnis = await le.getFileHandle('_Ergebnisse.json').then(function(){ return true; }, function(){ return false; }); }catch(e8){}   // ResultKit: geprüfte Ergebnisse übernommen
     try{
-      var pl = await unterordner(proj, 'Pläne');
+      var pl = await bereich('plankit', 'Pläne');
       if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
     }catch(e6){}
     try{
-      var ab = await unterordner(proj, 'Abrechnung');
+      var ab = await bereich('belegkit', 'Abrechnung');
       if (ab) for await (var k of ab.values()) if (k.kind === 'file' && /_Aufwand_.*\.json$/i.test(k.name)){ s.beleg = true; break; }
     }catch(e7){}
     return s;
