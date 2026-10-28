@@ -29,7 +29,7 @@
 const VERSION = 1;
 const ORDNER = '_Spektron';
 const AB = '26.0560';                 // erstes Spektron-Projekt
-const UMSTELLUNG = false;             // erst beim Umzug (Schritt 4) auf true – dann landen neue Projekte gleich in _Spektron
+const UMSTELLUNG = true;              // seit dem Umzug (28.10.2026): neue Projekte landen gleich in _Spektron
 const MARKER = '_Umzug.json';         // <Projekt>/_Spektron/_Umzug.json: { format:'spektron-umzug', version:1, bereiche:{ <id>:{ am, ... } } }
 const HINWEIS_DATEI = 'BITTE NICHT ANFASSEN.txt';
 const HINWEIS_TEXT = [
@@ -112,7 +112,7 @@ async function umzugVermerk(sp){
     const h = await kind(sp, MARKER);
     if (!h || h.kind !== 'file') return null;
     const o = JSON.parse(await (await (await sp.getFileHandle(h.name)).getFile()).text());
-    return o && o.format === 'spektron-umzug' && o.version === 1 && o.bereiche && typeof o.bereiche === 'object' ? o : null;
+    return o && o.format === 'spektron-umzug' && typeof o.version === 'number' && o.version >= 1 && o.bereiche && typeof o.bereiche === 'object' ? o : null;   // auch neuere Fassungen zählen als Vermerk
   }catch(e){ return null; }          // unlesbar = kein Vermerk; dann gilt der frühere Ort, solange dort etwas liegt
 }
 async function hinweisSchreiben(sp){
