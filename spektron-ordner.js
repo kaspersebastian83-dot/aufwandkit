@@ -47,20 +47,24 @@ const HINWEIS_TEXT = [
 
 const nfc = s => String(s == null ? '' : s).normalize('NFC');
 const gleich = (a, b) => nfc(a).toLowerCase() === nfc(b).toLowerCase();
-const ist = (...namen) => name => namen.some(n => gleich(name, n));
+/* Eintrag passt nur mit Name UND Art: ein Ordner „_Ergebnisse.json“ oder eine Datei „_Projekt_Sicherungen“ zählt nicht. */
+const datei = (...namen) => (name, art) => art === 'file' && namen.some(n => gleich(name, n));
+const ordner = (...namen) => (name, art) => art === 'directory' && namen.some(n => gleich(name, n));
+const muster = re => (name, art) => art === 'file' && re.test(nfc(name));
+const oder = (...regeln) => (name, art) => regeln.some(r => r(name, art));
 
 /* Bereiche: alt = Pfad ab Projektordner, neu = Pfad ab _Spektron, passt(name, art) = gehört der Eintrag dazu. */
 const BEREICHE = Object.freeze({
-  projekt:            Object.freeze({ app: 'Projektzentrale, FotoKit', alt: [], neu: [], passt: ist('_Projekt.json', '_Projekt_Sicherungen') }),
-  fotokit:            Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit'], passt: ist('_Bildumbenenner.json', '_FotoKit_Fassungen') }),
-  fotokitPruefsummen: Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit', 'Pruefsummen'], passt: (n, art) => art === 'file' && /^Pruefsummen_Originale_.*\.sha256$/i.test(nfc(n)) }),
-  labelkit:           Object.freeze({ app: 'LabelKit', alt: ['Laboraufträge'], neu: ['LabelKit'], passt: (n, art) => art === 'file' && /_Daten\.json$/i.test(nfc(n)) }),
-  labelkitAblage:     Object.freeze({ app: 'LabelKit', alt: ['Feldprotokolle'], neu: ['LabelKit'], passt: ist('_Ablage-Protokoll.txt') }),
-  resultkit:          Object.freeze({ app: 'ResultKit', alt: ['Laborergebnisse'], neu: ['ResultKit'], passt: ist('_Ergebnisse.json', '_Ergebnisse.vorher.json') }),
-  plankit:            Object.freeze({ app: 'PlanKit', alt: ['Pläne'], neu: ['PlanKit'], passt: (n, art) => art === 'file' && /\.probenplan$/i.test(nfc(n)) }),
-  belegkit:           Object.freeze({ app: 'BelegKit', alt: ['Abrechnung'], neu: ['BelegKit'], passt: (n, art) => (art === 'file' && /\.json$/i.test(nfc(n))) || gleich(n, '_BelegKit_Sicherungen') }),
+  projekt:            Object.freeze({ app: 'Projektzentrale, FotoKit', alt: [], neu: [], passt: oder(datei('_Projekt.json'), ordner('_Projekt_Sicherungen')) }),
+  fotokit:            Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit'], passt: oder(datei('_Bildumbenenner.json'), ordner('_FotoKit_Fassungen')) }),
+  fotokitPruefsummen: Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit', 'Pruefsummen'], passt: muster(/^Pruefsummen_Originale_.*\.sha256$/i) }),
+  labelkit:           Object.freeze({ app: 'LabelKit', alt: ['Laboraufträge'], neu: ['LabelKit'], passt: muster(/_Daten\.json$/i) }),
+  labelkitAblage:     Object.freeze({ app: 'LabelKit', alt: ['Feldprotokolle'], neu: ['LabelKit'], passt: datei('_Ablage-Protokoll.txt') }),
+  resultkit:          Object.freeze({ app: 'ResultKit', alt: ['Laborergebnisse'], neu: ['ResultKit'], passt: datei('_Ergebnisse.json', '_Ergebnisse.vorher.json') }),
+  plankit:            Object.freeze({ app: 'PlanKit', alt: ['Pläne'], neu: ['PlanKit'], passt: muster(/\.probenplan$/i) }),
+  belegkit:           Object.freeze({ app: 'BelegKit', alt: ['Abrechnung'], neu: ['BelegKit'], passt: oder(muster(/\.json$/i), ordner('_BelegKit_Sicherungen')) }),
   buero:              Object.freeze({ app: 'BüroKit, Projektzentrale', alt: ['_Buero'], neu: ['Buero'], passt: () => true }),
-  anlagenProtokoll:   Object.freeze({ app: 'Projektzentrale, PlanKit', alt: ['Mitteilungen'], neu: ['Protokolle'], passt: ist('_Anlagen-Protokoll.txt') })
+  anlagenProtokoll:   Object.freeze({ app: 'Projektzentrale, PlanKit', alt: ['Mitteilungen'], neu: ['Protokolle'], passt: datei('_Anlagen-Protokoll.txt') })
 });
 
 /** Projektnummer → Zahl zum Vergleichen (26.0560 → 26000560), sonst null. Gleiche Regel wie SPEKTRON-ORDNERNAME. */
@@ -126,29 +130,32 @@ async function istSpektronProjekt(projektDir){
   return !!(await hatSpektron(projektDir));
 }
 
-/** Wo liegt der Bereich? → { dir, wo:'neu'|'alt', pfad, konflikt, bereich }. dir ist null, wenn der Ordner fehlt und anlegen nicht gesetzt ist. */
+/** Wo liegt der Bereich? → { dir, wo:'neu'|'alt', pfad, konflikt, umgezogen, bereich }.
+    dir ist null, wenn der Ordner fehlt und anlegen nicht gesetzt ist. Mit anlegen am neuen Ort wird auch die Hinweisdatei
+    ergänzt, falls sie fehlt. konflikt = an beiden Orten liegen passende Einträge; mit umgezogen (Umzug vermerkt) sind das
+    Nachzügler am früheren Ort – z. B. von einer noch offenen alten App-Version. Die übernimmt der Umzug der Projektzentrale
+    bei erneutem Ausführen; die App arbeitet weiter am neuen Ort. */
 async function ort(projektDir, bereich, optionen){
   const b = BEREICHE[bereich];
   if (!b) throw Error('Unbekannter Spektron-Bereich: ' + bereich);
   const anlegen = !!(optionen && optionen.anlegen);
   const altPfad = b.alt, neuPfad = [ORDNER].concat(b.neu);
-  const fertig = async (wo, dir, konflikt) => {
-    if (!dir && anlegen){
-      if (wo === 'neu'){ const sp = await spektronDir(projektDir, true); dir = await unter(sp, b.neu, true); }
-      else dir = await unter(projektDir, altPfad, true);
-    }
-    return { dir: dir || null, wo, pfad: (wo === 'neu' ? neuPfad : altPfad).join('/'), konflikt: !!konflikt, bereich };
+  const fertig = async (wo, dir, konflikt, umgezogen) => {
+    if (anlegen && wo === 'neu'){ const sp = await spektronDir(projektDir, true); if (!dir) dir = await unter(sp, b.neu, true); }
+    else if (anlegen && !dir) dir = await unter(projektDir, altPfad, true);
+    return { dir: dir || null, wo, pfad: (wo === 'neu' ? neuPfad : altPfad).join('/'), konflikt: !!konflikt, umgezogen: !!umgezogen, bereich };
   };
   const altDir = await unter(projektDir, altPfad, false);
-  if (!(await istSpektronProjekt(projektDir))) return fertig('alt', altDir, false);
+  if (!(await istSpektronProjekt(projektDir))) return fertig('alt', altDir, false, false);
   const sp = await hatSpektron(projektDir);
   const neuDir = sp ? await unter(sp, b.neu, false) : null;
   const altHat = (await passende(altDir, b)).length > 0;
   const neuHat = (await passende(neuDir, b)).length > 0;
   const konflikt = altHat && neuHat;
-  if (neuHat && (!altHat || ((await umzugVermerk(sp)) || { bereiche: {} }).bereiche[bereich])) return fertig('neu', neuDir, konflikt);
-  if (altHat) return fertig('alt', altDir, konflikt);
-  return (sp || UMSTELLUNG) ? fertig('neu', neuDir, false) : fertig('alt', altDir, false);
+  const umgezogen = !!(((await umzugVermerk(sp)) || { bereiche: {} }).bereiche[bereich]);
+  if (neuHat && (!altHat || umgezogen)) return fertig('neu', neuDir, konflikt, umgezogen);
+  if (altHat) return fertig('alt', altDir, konflikt, umgezogen);
+  return (sp || UMSTELLUNG) ? fertig('neu', neuDir, false, umgezogen) : fertig('alt', altDir, false, umgezogen);
 }
 
 /** Für den Umzug (nur lesen): je Bereich, was am früheren Ort liegt und wohin es gehört. Leer für Projekte „Vor Spektron“. */

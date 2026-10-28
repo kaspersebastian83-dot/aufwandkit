@@ -124,9 +124,9 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
   await ok('An beiden Orten: ohne Umzugsvermerk früherer Ort, mit Vermerk neuer Ort – immer als Konflikt gemeldet', async () => {
     const zwei = vermerk => baue('26.0563 Köln Ste', Object.assign({ 'Laborergebnisse/_Ergebnisse.json': 'alt', '_Spektron/ResultKit/_Ergebnisse.json': 'neu' },
       vermerk ? { '_Spektron/_Umzug.json': vermerk } : {}));
-    let o = await S.ort(zwei(), 'resultkit'); assert.equal(o.wo, 'alt'); assert.equal(o.konflikt, true);
+    let o = await S.ort(zwei(), 'resultkit'); assert.equal(o.wo, 'alt'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, false);
     o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { resultkit: { am: '2026-10-28' } } })), 'resultkit');
-    assert.equal(o.wo, 'neu'); assert.equal(o.konflikt, true);
+    assert.equal(o.wo, 'neu'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, true, 'Nachzügler am früheren Ort erkennbar');
     o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { plankit: {} } })), 'resultkit');
     assert.equal(o.wo, 'alt', 'Vermerk gilt nur für den genannten Bereich');
     o = await S.ort(zwei('kaputt{'), 'resultkit'); assert.equal(o.wo, 'alt', 'unlesbarer Vermerk = kein Vermerk');
@@ -136,6 +136,20 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     const p = baue('26.0564 Köln Luc', { ['pläne/Probenplan x.probenplan']: '{}', 'LABORAUFTRÄGE/x_Daten.json': '{}' });
     assert.equal((await S.ort(p, 'plankit')).dir.name, 'pläne');
     assert.equal((await S.ort(p, 'labelkit')).dir.name, 'LABORAUFTRÄGE');
+  });
+
+  await ok('Name allein reicht nicht: Ordner „_Ergebnisse.json“ oder Datei „_Projekt_Sicherungen“ zählen nicht', async () => {
+    const p = baue('26.0567 Köln Nad', { 'Laborergebnisse/_Ergebnisse.json/': null, '_Projekt_Sicherungen': 'x', 'Abrechnung/_BelegKit_Sicherungen': 'x',
+      'Fotos/_Bildumbenenner.json/': null, '_Spektron/ResultKit/_Ergebnisse.json': '{}' });
+    const r = await S.ort(p, 'resultkit'); assert.equal(r.wo, 'neu'); assert.equal(r.konflikt, false);
+    assert.deepEqual((await S.umzugListe(p)).map(x => x.bereich), [], 'nichts Falsches im Umzug');
+  });
+
+  await ok('Hinweisdatei wird ergänzt, wenn _Spektron und Bereichsordner schon da sind (nur mit anlegen)', async () => {
+    const p = baue('25.0102 Aachen Ben', { '_Spektron/ResultKit/': null });
+    await S.ort(p, 'resultkit'); assert.equal(hat(p, '_Spektron', S.HINWEIS_DATEI), false, 'Lesen schreibt nichts');
+    const o = await S.ort(p, 'resultkit', { anlegen: true }); assert.equal(o.dir.name, 'ResultKit');
+    assert.ok(hat(p, '_Spektron', S.HINWEIS_DATEI));
   });
 
   await ok('Datei namens _Spektron blockiert das Anlegen', async () => {
