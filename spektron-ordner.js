@@ -78,10 +78,14 @@ async function kind(dir, name){
   for await (const h of dir.values()) if (gleich(h.name, name)) return h;
   return null;
 }
-/** Unterordner entlang eines Pfads; Namen ohne Groß-/Kleinschreibung und Unicode-Form verglichen. */
+/** Unterordner entlang eines Pfads: zuerst direkt mit dem Namen (wie findSubdir in den Apps), sonst gesucht –
+    ohne Groß-/Kleinschreibung und Unicode-Form verglichen. */
 async function unter(dir, pfad, anlegen){
   let d = dir;
   for (const teil of pfad){
+    let direkt = null;
+    try{ direkt = await d.getDirectoryHandle(teil); }catch(e){ /* fehlt, andere Schreibweise oder Datei gleichen Namens */ }
+    if (direkt){ d = direkt; continue; }
     const h = await kind(d, teil);
     if (h && h.kind === 'directory'){ d = await d.getDirectoryHandle(h.name); continue; }
     if (h || !anlegen) return null;        // Datei gleichen Namens oder nicht anlegen
