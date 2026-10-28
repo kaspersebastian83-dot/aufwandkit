@@ -1225,7 +1225,7 @@ function info(){
     <li><b>Bericht &amp; Fotos:</b> abzurechnende Berichte ankreuzen, Seitenzahl bestätigen.</li>
     <li><b>Abrechnung:</b> Hinweise klären, „Kopieren“ und ins Rechnungsprogramm einfügen, „Stand speichern“.</li></ol>
     <table>${CHANGELOG.map(([v, d, t]) => `<tr><td>${v}<br><small>${d}</small></td><td>${esc(t)}</td></tr>`).join('')}</table>
-    <p>Dateien: <code>Abrechnung/Aufwand_&lt;Kürzel&gt;.json</code> (je Person), <code>Abrechnung/_Abrechnung.json</code> (Berichte), Stände <code>Abrechnung/&lt;Nr&gt;_Aufwand_&lt;Datum&gt;.json/.csv</code>, Einstellungen <code>${EINST_DATEI}</code> im Archivordner.</p></div>
+    <p>Dateien: <code>Aufwand_&lt;Kürzel&gt;.json</code> (je Person), <code>_Abrechnung.json</code> (Berichte) und die JSON der Stände <code>&lt;Nr&gt;_Aufwand_&lt;Datum&gt;.json</code> liegen bei Spektron-Projekten in <code>_Spektron/BelegKit</code>, sonst in <code>Abrechnung</code>; die CSV der Stände immer sichtbar in <code>Abrechnung</code>. Einstellungen <code>${EINST_DATEI}</code> im Archivordner.</p></div>
     <div class="btns"><button id="dlgZu">Schließen</button></div>`;
   $('dlgBack').classList.add('show'); $('dlgZu').onclick = () => $('dlgBack').classList.remove('show');
 }
