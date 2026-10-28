@@ -454,9 +454,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.12.0';
+const APP_VERSION = '1.13.0';
 const APP_DATE = '2026-10-28';
 const CHANGELOG = [
+  ['1.13.0', '28.10.2026', 'Spektron-Ordner ist da: Neue Projekte (ab 26.0560) und per Projektzentrale umgezogene Projekte haben ihre App-Daten jetzt im Unterordner „_Spektron“ (bitte nicht anfassen). Noch nicht umgezogene Projekte werden weiter am bisherigen Ort gelesen und geschrieben. Die CSV der Stände bleiben im Ordner „Abrechnung“.'],
   ['1.12.0', '28.10.2026', 'Vorbereitung „Spektron-Ordner“: Die App-Daten eines Projekts ziehen später in den Unterordner „_Spektron“. BelegKit findet Zeiten, Berichtsangaben, gespeicherte Stände und die Daten von LabelKit, FotoKit und Projektzentrale jetzt an beiden Orten; die CSV der Stände bleiben im Ordner „Abrechnung“. Bis zum Umzug ändert sich nichts.'],
   ['1.11.0', '28.10.2026', 'Hinweis bei „Stand speichern“: Das Büro schreibt die Rechnung nach dem neuesten gespeicherten Stand (BüroKit 1.1 zeigt ihn unter „Abrechnung“ und warnt, wenn sich danach etwas geändert hat). Also vor „Ans Büro“ und nach jeder Änderung an Zeiten, Proben, Berichten oder Fotos neu speichern. An Berechnung und Dateien ändert sich nichts.'],
   ['1.10.1', '26.10.2026', 'Behoben: Zweimal schnell „Neu einlesen“ oder ein Projektwechsel während des Einlesens zählte Stunden und Berichtsseiten doppelt und meldete „Mehrere Zeitdateien“ – es gilt jetzt nur noch das zuletzt begonnene Einlesen, der Knopf ist währenddessen gesperrt. 3.002 mit Sätzen „0“ (kostenlos, wie im Hinweis empfohlen) zeigt jetzt 0,00 € statt „kein Betrag“; Summe Titel 3 und Netto erscheinen wieder.'],
