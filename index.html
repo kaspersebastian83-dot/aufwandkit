@@ -595,6 +595,11 @@ async function bereich(proj, b, anlegen){
   if (!SO) return b === 'projekt' ? proj.dir : unter(proj.dir, { belegkit: ORDNER.abr, labelkit: ORDNER.lab, fotokit: ORDNER.fotos }[b], anlegen);
   return (await SO.ort(proj.dir, b, { anlegen: !!anlegen })).dir;
 }
+/** Angezeigter Pfad der BelegKit-Dateien: „Abrechnung“ oder künftig „_Spektron/BelegKit“ (wie gespeichert wird). */
+async function abrPfad(proj){
+  const SO = typeof window !== 'undefined' ? window.SpektronOrdner : null;
+  return SO ? (await SO.ort(proj.dir, 'belegkit')).pfad : ORDNER.abr;
+}
 async function liesJson(dir, name){
   if (!dir) return null;
   try{
@@ -703,6 +708,7 @@ async function ladeAlles(){
   try{ const e = await liesJson(archiv, EINST_DATEI); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); N.einst = AW.einstellungen(null); N.einstAusDatei = false; N.einstGesperrt = true; }
   const abr = await bereich(proj, 'belegkit', false);
+  N.abrPfad = await abrPfad(proj);
   N.alle = []; N.letzterStand = '';
   if (abr) for await (const h of abr.values()){
     const st = h.kind === 'file' && /^.+_Aufwand_(\d{4}-\d{2}-\d{2})(?:_(\d+))?\.json$/i.exec(h.name);   // neuester „Stand speichern“ (nur für den Hinweis fürs Büro)
@@ -970,7 +976,7 @@ function zeichneZeiten(){
     <div class="zeile"><input type="text" id="kzEin" list="ma-kuerzel" maxlength="6" placeholder="z. B. SK" style="width:90px;text-transform:uppercase"><button class="primary" id="kzOk">Weiter</button></div></div>`;
     $('kzOk').onclick = () => { const v = $('kzEin').value.trim(); if (!AW.kuerzelOk(v)){ status('Kürzel: 1–6 Buchstaben', 'err'); return; } setzeKuerzel(v); }; $('kzEin').focus(); return; }
   const kz = A.kz.toUpperCase();
-  s.innerHTML = `<div class="karte"><div class="kopfzeile"><h2>Meine Zeiten · ${esc(kz)}</h2><span class="m">gespeichert in <code>Abrechnung/Aufwand_${esc(kz)}.json</code></span></div>
+  s.innerHTML = `<div class="karte"><div class="kopfzeile"><h2>Meine Zeiten · ${esc(kz)}</h2><span class="m">gespeichert in <code>${esc(A.abrPfad || ORDNER.abr)}/Aufwand_${esc(kz)}.json</code></span></div>
     <div class="tabwrap"><table class="eing"><thead><tr><th>Datum</th><th>Tätigkeit</th><th>Rolle</th><th class="r">Stunden</th><th class="r" title="Nur der Fahrer trägt km ein">km</th><th class="r" title="Tage mit Anspruch auf Tagesspesen">Spesen&nbsp;Tage</th><th class="r">Übern.</th><th class="r">Betrag&nbsp;€</th><th>Bemerkung</th><th></th></tr></thead>
     <tbody id="zRows">${A.meine.map((e, i) => zeileHtml(e, i)).join('')}</tbody></table></div>
     <div class="zeile" style="margin-top:10px"><button class="primary" id="zNeu">+ Ortstermin</button><button id="zNeuB">+ Auswertung / Bericht</button><button id="zFassungen">Zeitfassungen prüfen</button><button id="zRetry">Erneut speichern</button>
@@ -1147,7 +1153,7 @@ async function standSpeichern(a){
   const noch = () => A.proj === proj;
   if (noch()) status('… Prüfsummen werden berechnet');
   const quellen = [], hash = async (pfad, file) => quellen.push({ datei: pfad, bytes: file.size, geaendert: new Date(file.lastModified).toISOString(), sha256: await sha256Hex(await file.arrayBuffer()) });
-  const abr = await bereich(proj, 'belegkit', true), csvOrdner = await unter(proj.dir, ORDNER.abr, true);   // JSON: Daten-Ort · CSV: immer „Abrechnung“
+  const abr = await bereich(proj, 'belegkit', true), csvOrdner = await unter(proj.dir, ORDNER.abr, true), jsonPfad = await abrPfad(proj);   // JSON: Daten-Ort · CSV: immer „Abrechnung“
   try{ await hash('_Projekt.json', await (await (await bereich(proj, 'projekt')).getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
   for await (const h of abr.values()) if (h.kind === 'file' && (/^Aufwand_.*\.json$/.test(h.name) || h.name === PROJ_DATEI)) await hash(ORDNER.abr + '/' + h.name, await h.getFile());
   if (labelkit) await hash(ORDNER.lab + '/' + labelkit.datei.name, labelkit.datei);
@@ -1168,10 +1174,10 @@ async function standSpeichern(a){
     projektdaten: pd, titel: a.titel, hinweise: a.hinweise, netto: a.netto, seiten: a.seiten, fotos: a.fotos, ortstermine: a.sum.ortstermine, quellen });
   const w = await (await csvOrdner.getFileHandle(csvName, { create: true })).createWritable();
   await w.write(AW.csv(a, [['Projekt', proj.name], ...[['Objekt', pd.objekt], ['Auftraggeber', pd.auftraggeber], ['Schaden-Nr. des Auftraggebers', pd.schadennummer]].filter(x => x[1]), ['Stand', `${zeitDe(jetzt)} (${kz}, ${APP_NAME} ${APP_VERSION})`], ['']])); await w.close();
-  if (!noch()){ status(`✓ Stand für ${proj.nr} gespeichert: „${ORDNER.abr}/${json}“`, 'ok'); return; }
+  if (!noch()){ status(`✓ Stand für ${proj.nr} gespeichert: „${jsonPfad}/${json}“ und „${ORDNER.abr}/${csvName}“`, 'ok'); return; }
   A.letzterStand = json;
   if ($('aStand')) zeichneAbrechnung();   // nur, wenn die Abrechnung noch zu sehen ist
-  status(`✓ Stand gespeichert: „${ORDNER.abr}/${json}“ und „${csvName}“ – das Büro rechnet danach ab`, 'ok');
+  status(`✓ Stand gespeichert: „${jsonPfad}/${json}“ und „${ORDNER.abr}/${csvName}“ – das Büro rechnet danach ab`, 'ok');
 }
 
 function zeichneEinst(){
