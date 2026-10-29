@@ -454,9 +454,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.13.0';
+const APP_VERSION = '1.13.1';
 const APP_DATE = '2026-10-28';
 const CHANGELOG = [
+  ['1.13.1', '29.10.2026', 'Gemeinsames Modul spektron-ordner.js: Beim Umzug und bei der Ortswahl zählen in „Abrechnung“ nur noch die Dateien, die BelegKit selbst schreibt (Aufwand_<Kürzel>.json, _Abrechnung.json, <Nr>_Aufwand_<Datum>.json, _BelegKit_Sicherungen) – andere JSON dort bleiben liegen.'],
   ['1.13.0', '28.10.2026', 'Die Meldung nach dem Speichern der Zeiten nennt den tatsächlichen Ordner. Spektron-Ordner ist da: Neue Projekte (ab 26.0560) und per Projektzentrale umgezogene Projekte haben ihre App-Daten jetzt im Unterordner „_Spektron“ (bitte nicht anfassen). Noch nicht umgezogene Projekte werden weiter am bisherigen Ort gelesen und geschrieben. Die CSV der Stände bleiben im Ordner „Abrechnung“.'],
   ['1.12.0', '28.10.2026', 'Vorbereitung „Spektron-Ordner“: Die App-Daten eines Projekts ziehen später in den Unterordner „_Spektron“. BelegKit findet Zeiten, Berichtsangaben, gespeicherte Stände und die Daten von LabelKit, FotoKit und Projektzentrale jetzt an beiden Orten; die CSV der Stände bleiben im Ordner „Abrechnung“. Bis zum Umzug ändert sich nichts.'],
   ['1.11.0', '28.10.2026', 'Hinweis bei „Stand speichern“: Das Büro schreibt die Rechnung nach dem neuesten gespeicherten Stand (BüroKit 1.1 zeigt ihn unter „Abrechnung“ und warnt, wenn sich danach etwas geändert hat). Also vor „Ans Büro“ und nach jeder Änderung an Zeiten, Proben, Berichten oder Fotos neu speichern. An Berechnung und Dateien ändert sich nichts.'],
