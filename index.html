@@ -608,8 +608,9 @@ async function liesJson(dir, name){
   try{
     let h;
     try{ h = await dir.getFileHandle(name); }catch(e){ if (e.name === 'NotFoundError') return null; throw e; }
-    const f = await h.getFile();
-    return { daten: JSON.parse(await f.text()), datei: f };
+    const f = await h.getFile(), text = await f.text();
+    if (!text.trim()) return null;   // leer = ein früheres Anlegen ist gescheitert („create“ legt die Datei sofort an) – wie nicht vorhanden
+    return { daten: JSON.parse(text), datei: f, text };
   }catch(e){ throw new Error(`„${name}“ ist nicht lesbar (${e.message}) – wird nicht überschrieben. Bitte Zugriff und Datei prüfen und erneut versuchen.`); }
 }
 
@@ -619,11 +620,11 @@ async function liesJson(dir, name){
 async function jsonAendern(dir, name, aendern){
   const lauf = async () => {
     for (let versuch = 1; ; versuch++){
-      const vorher = await liesJson(dir, name), text = vorher ? await vorher.datei.text() : '';
+      const vorher = await liesJson(dir, name), text = vorher ? vorher.text : '';
       const neu = await aendern(vorher ? vorher.daten : null), ausgabe = JSON.stringify(neu, null, 2) + '\n';
       const h = await dir.getFileHandle(name, { create: true }), w = await h.createWritable();
       try{
-        if (await (await h.getFile()).text() !== text){   // „create“ legt eine leere Datei an – leer = es gab noch keine
+        if ((await (await h.getFile()).text()).trim() !== text.trim()){   // „create“ legt eine leere Datei an – leer = es gab noch keine
           await w.abort().catch(() => {});
           if (versuch < 3) continue;
           throw Error(`„${name}“ wird gerade an einem anderen Rechner geändert – bitte gleich noch einmal.`);
@@ -1202,15 +1203,15 @@ async function standSpeichern(a){
   if (noch()) status('… Prüfsummen werden berechnet');
   const quellen = [], hash = async (pfad, file) => quellen.push({ datei: pfad, bytes: file.size, geaendert: new Date(file.lastModified).toISOString(), sha256: await sha256Hex(await file.arrayBuffer()) });
   const abr = await bereich(proj, 'belegkit', true), csvOrdner = await unter(proj.dir, ORDNER.abr, true), jsonPfad = await abrPfad(proj);   // JSON: Daten-Ort · CSV: immer „Abrechnung“
-  const pruefsumme = async f => { try{ return f ? await sha256Hex(await f.arrayBuffer()) : null; }catch(e){ return 'unlesbar'; } };   // ein geänderter Stand ist im Browser oft nicht mehr lesbar
+  const pruefsumme = async f => { try{ return f && f.size ? await sha256Hex(await f.arrayBuffer()) : null; }catch(e){ return 'unlesbar'; } };   // leer = wie nicht vorhanden   // ein geänderter Stand ist im Browser oft nicht mehr lesbar
   // Im Stand stehen wie bisher: Zeiten, Berichtsangaben, Projektdaten, LabelKit, FotoKit, Einstellungen und nur die abgerechneten Berichte
   const imStand = q => !q.pfad.startsWith(ORDNER.mitteil + '/') || !!(pb[q.name.replace(/\.(docx?|pdf)$/i, '')] || {}).abrechnen;
-  for (const q of gelesen){
+  for (const q of gelesen.filter(imStand)){   // nicht abgerechnete Entwürfe dürfen sich ändern, ohne das Speichern zu stören
     let jetzt = null;
     if (q.dir) try{ jetzt = await (await q.dir.getFileHandle(q.name)).getFile(); }catch(e){ if (e.name !== 'NotFoundError') throw e; }
     const vorher = await pruefsumme(q.file);
     if (vorher === 'unlesbar' || vorher !== await pruefsumme(jetzt)) throw Error(`„${q.pfad}“ wurde gerade geändert – bitte „Neu einlesen“ und die Abrechnung prüfen. Nichts gespeichert.`);
-    if (q.file && imStand(q)) await hash(q.pfad, q.file);
+    if (q.file) await hash(q.pfad, q.file);
   }
   const namen = []; for (const d of new Set([abr, csvOrdner])) for await (const h of d.values()) namen.push(h.name);
   const gibtEs = async (d, n) => { try{ await d.getFileHandle(n); return true; }catch(e){ return false; } };

@@ -12,7 +12,7 @@ class Dir {
     const p = path.join(this.dir, n), io = this.io;
     if (o.create) await fs.appendFile(p, ''); try{ await fs.access(p); }catch(e){ if (e.code === 'ENOENT') throw fehlt(); throw e; }
     return { name: n, kind: 'file',
-      getFile: async () => { const b = await fs.readFile(p), s = await fs.stat(p); return { name: n, lastModified: s.mtimeMs, size: b.length, arrayBuffer: async () => Uint8Array.from(b).buffer, text: async () => b.toString() }; },
+      getFile: async () => { if (io.lesen) await io.lesen(n, p); const b = await fs.readFile(p), s = await fs.stat(p); return { name: n, lastModified: s.mtimeMs, size: b.length, arrayBuffer: async () => Uint8Array.from(b).buffer, text: async () => b.toString() }; },
       createWritable: async () => { if (io.oeffnen) await io.oeffnen(n, p); let t = ''; return { write: async v => { t += typeof v === 'string' ? v : Buffer.from(await v.arrayBuffer()); }, close: async () => { await fs.writeFile(p, t); }, abort: async () => {} }; } };
   }
   async *values(){ for (const e of await fs.readdir(this.dir, { withFileTypes: true })) yield e.isDirectory() ? new Dir(path.join(this.dir, e.name), this.io) : await this.getFileHandle(e.name); }
@@ -81,6 +81,21 @@ const staende = async P => (await fs.readdir(path.join(P, 'Abrechnung'))).filter
       const o = JSON.parse(await fs.readFile(datei, 'utf8'));
       assert.equal(o.berichte['1__Bericht'].seiten, '12', 'eigene Angabe'); assert.equal(o.berichte['3__Kollege'].seiten, '4', 'Angabe der anderen Sitzung bleibt');
     }
-    console.log('OK Stand speichern: geänderte Mengen erst prüfen, Prüfsummen vom gelesenen Stand; Berichtsangaben ohne Verlust (3 Fälle)');
+    // 4. Leere _Abrechnung.json (abgebrochenes Anlegen) blockiert nichts: gilt als nicht vorhanden, Angabe und Stand werden gespeichert
+    {
+      const P = await projekt(tmp, '99.9004 Synthetisch D', '99.9004', '1'), datei = path.join(P, 'Abrechnung', '_Abrechnung.json'); await fs.writeFile(datei, '');
+      const c = await sitzung(tmp, P, '99.9004'); await c.ladeAlles(); assert.equal(c.A.pdateiGesperrt, false, 'nicht gesperrt');
+      await c.speichereBericht('1__Bericht', { abrechnen: true, seiten: '10' }); assert.equal(JSON.parse(await fs.readFile(datei, 'utf8')).berichte['1__Bericht'].seiten, '10');
+      await c.ladeAlles(); await c.standSpeichern(c.abrechnungJetzt()); assert.equal((await staende(P)).length, 2);
+    }
+    // 5. Ein nicht abgerechneter Entwurf in „Mitteilungen“ ändert sich beim Speichern → stört nicht
+    {
+      const P = await projekt(tmp, '99.9005 Synthetisch E', '99.9005', '1'); let n = 0;
+      // 3. Lesen des abgerechneten Berichts = Prüfschleife von „Stand speichern“ – genau dann speichert jemand den Entwurf
+      const c = await sitzung(tmp, P, '99.9005', { lesen: async name => { if (name === '1__Bericht.pdf' && ++n === 3) await fs.writeFile(path.join(P, 'Mitteilungen', '2__Entwurf.pdf'), pdf(4)); } });
+      await c.ladeAlles();
+      await c.standSpeichern(c.abrechnungJetzt()); assert.ok(n >= 3, 'Entwurf wurde während der Prüfung geändert'); assert.equal((await staende(P)).length, 2);
+    }
+    console.log('OK Stand speichern: geänderte Mengen erst prüfen, Prüfsummen vom gelesenen Stand; Berichtsangaben ohne Verlust (5 Fälle)');
   }finally{ await fs.rm(tmp, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
