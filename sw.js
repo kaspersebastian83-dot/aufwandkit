@@ -8,7 +8,7 @@
    This worker therefore only ever touches caches with its own prefix and only answers requests inside its own scope. */
 const SCOPE = self.registration.scope;
 const PREFIX = 'aufwandkit:' + SCOPE + ':';
-const CACHE = PREFIX + 'v7';
+const CACHE = PREFIX + 'v8';
 const LEGACY = [];
 const ASSETS = ['./', './index.html', './spektron-ordner.js', './time-store.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png']
   .map(f => new URL(f, SCOPE).href);
