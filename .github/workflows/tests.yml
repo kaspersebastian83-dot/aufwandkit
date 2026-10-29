@@ -28,6 +28,7 @@ jobs:
           ZWEIG: ${{ github.head_ref }}
         # gleichnamiger Zweig in der Projektzentrale, falls es ihn gibt (Änderung in mehreren Repos), sonst main
         run: git clone --quiet --depth 1 --branch "$ZWEIG" https://github.com/kaspersebastian83-dot/projektzentrale.git ../projektzentrale 2>/dev/null || git clone --quiet --depth 1 https://github.com/kaspersebastian83-dot/projektzentrale.git ../projektzentrale
+      - run: node tests/stand-speichern.cjs
       - run: node tests/spektron-ordner.cjs
         env:
           SPEKTRON_ORDNER_PFLICHT: '1'

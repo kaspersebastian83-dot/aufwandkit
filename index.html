@@ -454,9 +454,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.13.1';
-const APP_DATE = '2026-10-28';
+const APP_VERSION = '1.14.0';
+const APP_DATE = '2026-10-29';
 const CHANGELOG = [
+  ['1.14.0', '29.10.2026', 'Prüfbericht vom 29.10., Teil 2: „Stand speichern“ liest vorher alles neu und rechnet nach. Hat ein Kollege inzwischen Zeiten, Proben oder Berichte geändert, wird nichts abgelegt – die neuen Mengen stehen dann da und werden erst geprüft; der zweite Klick speichert. Die Prüfsummen im Stand gehören genau zu den gelesenen Dateien (bisher konnte ein Stand mit 1 Stunde die Prüfsumme einer inzwischen auf 7 Stunden geänderten Zeitdatei bekommen, und BüroKit hielt ihn für aktuell). Berichtsangaben (abrechnen, Seitenzahl) und Zuordnungen der Probenarten: Schreiben zwei Kollegen gleichzeitig, geht keine Änderung mehr verloren.'],
   ['1.13.1', '29.10.2026', 'Gemeinsames Modul spektron-ordner.js: Beim Umzug und bei der Ortswahl zählen in „Abrechnung“ nur noch die Dateien, die BelegKit selbst schreibt (Aufwand_<Kürzel>.json, _Abrechnung.json, <Nr>_Aufwand_<Datum>.json, _BelegKit_Sicherungen) – andere JSON dort bleiben liegen.'],
   ['1.13.0', '28.10.2026', 'Die Meldung nach dem Speichern der Zeiten nennt den tatsächlichen Ordner. Spektron-Ordner ist da: Neue Projekte (ab 26.0560) und per Projektzentrale umgezogene Projekte haben ihre App-Daten jetzt im Unterordner „_Spektron“ (bitte nicht anfassen). Noch nicht umgezogene Projekte werden weiter am bisherigen Ort gelesen und geschrieben. Die CSV der Stände bleiben im Ordner „Abrechnung“.'],
   ['1.12.0', '28.10.2026', 'Vorbereitung „Spektron-Ordner“: Die App-Daten eines Projekts ziehen später in den Unterordner „_Spektron“. BelegKit findet Zeiten, Berichtsangaben, gespeicherte Stände und die Daten von LabelKit, FotoKit und Projektzentrale jetzt an beiden Orten; die CSV der Stände bleiben im Ordner „Abrechnung“. Bis zum Umzug ändert sich nichts.'],
@@ -611,6 +612,31 @@ async function liesJson(dir, name){
     return { daten: JSON.parse(await f.text()), datei: f };
   }catch(e){ throw new Error(`„${name}“ ist nicht lesbar (${e.message}) – wird nicht überschrieben. Bitte Zugriff und Datei prüfen und erneut versuchen.`); }
 }
+
+/** JSON-Datei frisch lesen, mit aendern(daten) ändern und schreiben (Prüfbericht 29.10., F10). Direkt vor dem Schreiben wird
+    verglichen, ob inzwischen jemand anderes geschrieben hat – dann neu lesen und die Änderung erneut anwenden (bis zu drei
+    Versuche), statt dessen Stand zu überschreiben. Im selben Browser zusätzlich eine Sperre je Datei. */
+async function jsonAendern(dir, name, aendern){
+  const lauf = async () => {
+    for (let versuch = 1; ; versuch++){
+      const vorher = await liesJson(dir, name), text = vorher ? await vorher.datei.text() : '';
+      const neu = await aendern(vorher ? vorher.daten : null), ausgabe = JSON.stringify(neu, null, 2) + '\n';
+      const h = await dir.getFileHandle(name, { create: true }), w = await h.createWritable();
+      try{
+        if (await (await h.getFile()).text() !== text){   // „create“ legt eine leere Datei an – leer = es gab noch keine
+          await w.abort().catch(() => {});
+          if (versuch < 3) continue;
+          throw Error(`„${name}“ wird gerade an einem anderen Rechner geändert – bitte gleich noch einmal.`);
+        }
+        await w.write(ausgabe); await w.close();
+      }catch(e){ await w.abort().catch(() => {}); throw e; }
+      if (await (await h.getFile()).text() !== ausgabe) throw Error(`„${name}“ wurde gleichzeitig an einem anderen Rechner geändert – bitte „Neu einlesen“ und prüfen.`);
+      return neu;
+    }
+  };
+  return navigator.locks ? navigator.locks.request('belegkit:json:' + name.normalize('NFC'), lauf) : lauf();
+}
+
 async function schreibJson(dir, name, obj){
   const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
   await w.write(JSON.stringify(obj, null, 2) + '\n'); await w.close();
@@ -701,13 +727,17 @@ async function ladeAlles(){
   try{ await sichereMeine(); }catch(e){ return; }   // bei Speicherfehlern Eingaben und Oberfläche erhalten
   // Erst in ein eigenes Objekt lesen und nur übernehmen, wenn kein neueres Einlesen (doppelt „Neu einlesen“, Projektwechsel) begonnen hat –
   // sonst hängen sich zwei Läufe in dieselben Listen (Stunden und Berichtsseiten doppelt, „Mehrere Zeitdateien“).
-  const N = {}, archiv = A.archiv, proj = A.proj;
+  // quellDateien: jede gelesene Quelle mit genau dem gelesenen Stand – „Stand speichern“ prüft, dass sie sich bis zum Speichern nicht
+  // geändert hat, und hängt deren Prüfsummen an (nicht die einer inzwischen neueren Datei; Prüfbericht 29.10., F15).
+  const N = { quellDateien: [] }, archiv = A.archiv, proj = A.proj;
+  const quelle = (dir, name, pfad, file) => N.quellDateien.push({ dir, name, pfad, file });
+  const quelleJson = async (dir, name, pfad) => { const j = await liesJson(dir, name); quelle(dir, name, pfad, j ? j.datei : null); return j; };
   const token = ++A.laden, aktuell = () => token === A.laden && A.proj === proj;
   // Neues Projekt: Berichte und Angaben des vorigen bis zum Ende des Einlesens weder zeigen noch speichern (speichereBericht prüft geladenFuer)
   if (A.geladenFuer !== proj){ A.berichte = []; A.alle = []; A.pdatei = { berichte: {} }; }
   $('inhalt').innerHTML = '<div class="leer"><p>Wird gelesen …</p></div>';
   const fehler = [], quellen = [];   // quellen: Lesefehler, die in der Abrechnung als Hinweis stehen müssen (fehlende Zeiten, Proben, Seiten)
-  try{ const e = await liesJson(archiv, EINST_DATEI); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
+  try{ const e = await quelleJson(archiv, EINST_DATEI, EINST_DATEI+' (Archivordner)'); N.einst = AW.einstellungen(e && e.daten); N.einstAusDatei = !!e; N.einstGeaendert = e && e.daten && e.daten.geaendert ? e.daten : null; N.einstStand = e && e.daten && e.daten.geaendert || null; N.einstGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Einstellungen nicht lesbar – es gelten die Vorgaben (Positionen, Preise, Zuordnung der Proben): ${e.message}`); N.einst = AW.einstellungen(null); N.einstAusDatei = false; N.einstGesperrt = true; }
   const abr = await bereich(proj, 'belegkit', false);
   N.abrPfad = await abrPfad(proj);
@@ -717,14 +747,15 @@ async function ladeAlles(){
     if (st){ const k = st[1] + String(+(st[2] || 1)).padStart(4, '0'); if (!N.letzterStandKey || k > N.letzterStandKey){ N.letzterStandKey = k; N.letzterStand = h.name; } continue; }
     const m = /^Aufwand_([A-Za-zÄÖÜäöü]{1,6})\.json$/.exec(h.kind === 'file' ? h.name : '');
     if (!m) continue;
-    try{ const j = await TimeStore.read(abr, h.name, {projekt:proj.nr,kuerzel:m[1].toUpperCase()}); if(!j.exists)throw Error('Datei während des Lesens verschwunden'); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: j.data.eintraege, geaendert: j.modified, revision:j.revision, daten:j.data }); }
-    catch(e){ fehler.push(e.message); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: [], defekt: true }); }
+    try{ const j = await TimeStore.read(abr, h.name, {projekt:proj.nr,kuerzel:m[1].toUpperCase()}); if(!j.exists)throw Error('Datei während des Lesens verschwunden');
+      quelle(abr, h.name, ORDNER.abr + '/' + h.name, { size: j.bytes.length, lastModified: j.modified, arrayBuffer: async () => Uint8Array.from(j.bytes).buffer }); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: j.data.eintraege, geaendert: j.modified, revision:j.revision, daten:j.data }); }
+    catch(e){ fehler.push(e.message); N.alle.push({ kuerzel: m[1].toUpperCase(), datei: h.name, eintraege: [], defekt: true }); try{ quelle(abr, h.name, ORDNER.abr + '/' + h.name, await h.getFile()); }catch(_){} }
   }
-  try{ const j = await liesJson(abr, PROJ_DATEI); N.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; N.pdateiGesperrt = false; }
+  try{ const j = await quelleJson(abr, PROJ_DATEI, ORDNER.abr+'/'+PROJ_DATEI); N.pdatei = j && j.daten && typeof j.daten === 'object' ? Object.assign({ berichte: {} }, j.daten) : { berichte: {} }; N.pdateiGesperrt = false; }
   catch(e){ fehler.push(e.message); quellen.push(`Berichtsangaben nicht lesbar – angekreuzte Berichte und Seitenzahlen fehlen: ${e.message}`); N.pdatei = { berichte: {} }; N.pdateiGesperrt = true; }
   // Gemeinsame Projektdaten (Projektzentrale): nur lesen und anzeigen – bearbeitet wird in der Projektzentrale
   N.pj = null;
-  try{ const j = await liesJson(await bereich(proj, 'projekt'), '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') N.pj = j.daten; }
+  try{ const j = await quelleJson(await bereich(proj, 'projekt'), '_Projekt.json', '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') N.pj = j.daten; }
   catch(e){ fehler.push(e.message); }
   // LabelKit: neueste …_Daten.json
   N.labelkit = null;
@@ -732,7 +763,7 @@ async function ladeAlles(){
   if (lab){
     let best = null;
     for await (const h of lab.values()) if (h.kind === 'file' && /_Daten\.json$/i.test(h.name)){ const f = await h.getFile(); if (!best || f.lastModified > best.lastModified) best = f; }
-    if (best){ try{ const daten = JSON.parse(await best.text()); N.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
+    if (best){ quelle(lab, best.name, ORDNER.lab + '/' + best.name, best); try{ const daten = JSON.parse(await best.text()); N.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
       catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); quellen.push(`LabelKit-Datei „${best.name}“ ist nicht lesbar – Titel 2 (Labor) fehlt.`); } }
   }
   // Fotos: Bilddateien direkt in „Fotos“, ohne die in FotoKit aussortierten
@@ -748,7 +779,7 @@ async function ladeAlles(){
       }
     }
     let aus = 0; const fh = [];
-    try{ const j = await liesJson(await bereich(proj, 'fotokit', false), '_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
+    try{ const j = await quelleJson(await bereich(proj, 'fotokit', false), '_Bildumbenenner.json', ORDNER.fotos+'/_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
     catch(e){ fh.push(`„Fotos/_Bildumbenenner.json“ ist nicht lesbar – in FotoKit aussortierte Fotos können nicht abgezogen werden, alle ${namen.length} Bilder sind gezählt.`); }
     if (unterOrdner.length) fh.push(`Im Ordner „Fotos“ liegen Bilder in Unterordnern (${unterOrdner.join(', ')}) – gezählt werden nur die Fotos direkt in „Fotos“.`);
     N.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
@@ -765,7 +796,7 @@ async function ladeAlles(){
     for (const e of [...st.values()].sort((a, b) => a.stamm.localeCompare(b.stamm, 'de', { numeric: true }))){
       const b = { stamm: e.stamm, dateien: e.dateien.map(h => h.name), word: null, pdf: null, anlage: /_(Anlage|Raumbuch)([-_]|$)/i.test(e.stamm) };
       for (const h of e.dateien){
-        const f = await h.getFile();
+        const f = await h.getFile(); quelle(mi, h.name, ORDNER.mitteil + '/' + h.name, f);
         if (/\.docx$/i.test(h.name)) b.word = AW.appXml(await zipEintrag(f, 'docProps/app.xml').catch(() => null));
         if (/\.pdf$/i.test(h.name)) b.pdf = f.size < 80e6 ? AW.pdfSeiten(new TextDecoder('latin1').decode(await f.arrayBuffer())) : null;
       }
@@ -778,6 +809,7 @@ async function ladeAlles(){
   uebernehmeMeineDatei();
   if (fehler.length) meldung('err', fehler.map(esc).join('<br>')); else versteckeMeldung();
   zeichne();
+  return true;   // für „Stand speichern“: dieses Einlesen ist fertig und gilt
 }
 
 /* ---------- Speichern ---------- */
@@ -916,24 +948,32 @@ async function pruefeZeitFassungen(){
 async function speichereBericht(stamm, patch){
   if (A.geladenFuer !== A.proj){ status('Das Projekt wird noch gelesen – bitte gleich noch einmal.', 'err'); return; }
   if (A.pdateiGesperrt){ status(`„${PROJ_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
-  const abr = await bereich(A.proj, 'belegkit', true), cur = await liesJson(abr, PROJ_DATEI);
-  const o = Object.assign({ format: 'aufwandkit-projekt', version: 1, hinweis: 'Angaben zur Abrechnung dieses Projekts (BelegKit). Bitte nicht löschen.', berichte: {} }, cur && cur.daten);
-  o.berichte = Object.assign({}, o.berichte); o.berichte[stamm] = Object.assign({}, o.berichte[stamm], patch, { geaendert: new Date().toISOString(), von: A.kz.toUpperCase() });
-  o.geaendert = new Date().toISOString(); o.geaendertMit = APP_NAME + ' ' + APP_VERSION;
-  await schreibJson(abr, PROJ_DATEI, o); A.pdatei = o; status('✓ gespeichert', 'ok');
+  const proj = A.proj, kz = A.kz.toUpperCase(), abr = await bereich(proj, 'belegkit', true);
+  const o = await jsonAendern(abr, PROJ_DATEI, daten => {
+    const o = Object.assign({ format: 'aufwandkit-projekt', version: 1, hinweis: 'Angaben zur Abrechnung dieses Projekts (BelegKit). Bitte nicht löschen.', berichte: {} }, daten);
+    o.berichte = Object.assign({}, o.berichte); o.berichte[stamm] = Object.assign({}, o.berichte[stamm], patch, { geaendert: new Date().toISOString(), von: kz });
+    o.geaendert = new Date().toISOString(); o.geaendertMit = APP_NAME + ' ' + APP_VERSION;
+    return o;
+  });
+  if (A.proj === proj){ A.pdatei = o; status('✓ gespeichert', 'ok'); }   // inzwischen anderes Projekt: dessen Anzeige bleibt unberührt
 }
 /** Zuordnung einer Probenart: Datei frisch lesen, nur diesen Eintrag ändern, schreiben – so gehen Preise oder Zuordnungen,
    die ein Kollege inzwischen gespeichert hat, nicht verloren (bisher wurde der ganze beim Öffnen gelesene Stand zurückgeschrieben). */
 async function speichereZuordnung(kat, wert){
   if (A.einstGesperrt){ status(`„${EINST_DATEI}“ ist nicht lesbar und wird nicht überschrieben.`, 'err'); return; }
-  const cur = await liesJson(A.archiv, EINST_DATEI);
-  if (!cur){ await speichereEinst(); return; }   // noch keine Datei: der ganze Stand wird angelegt
-  const o = Object.assign({}, cur.daten, { zuordnung: Object.assign({}, cur.daten.zuordnung || AW.STANDARD().zuordnung) });
-  if (wert) o.zuordnung[kat] = wert; else delete o.zuordnung[kat];
-  Object.assign(o, { geaendert: new Date().toISOString(), geaendertVon: A.kz.toUpperCase(), geaendertMit: APP_NAME + ' ' + APP_VERSION });
-  await schreibJson(A.archiv, EINST_DATEI, o);
+  const archiv = A.archiv, kz = A.kz.toUpperCase();
+  if (!(await liesJson(archiv, EINST_DATEI))){ await speichereEinst(); return; }   // noch keine Datei: der ganze Stand wird angelegt
+  let vorher = null;
+  const o = await jsonAendern(archiv, EINST_DATEI, daten => {
+    if (!daten) throw Error(`„${EINST_DATEI}“ ist inzwischen verschwunden – bitte „Neu einlesen“.`);
+    vorher = daten.geaendert || null;
+    const o = Object.assign({}, daten, { zuordnung: Object.assign({}, daten.zuordnung || AW.STANDARD().zuordnung) });
+    if (wert) o.zuordnung[kat] = wert; else delete o.zuordnung[kat];
+    return Object.assign(o, { geaendert: new Date().toISOString(), geaendertVon: kz, geaendertMit: APP_NAME + ' ' + APP_VERSION });
+  });
+  if (A.archiv !== archiv) return;
   // Stand nur fortschreiben, wenn vorher niemand dazwischen gespeichert hat – sonst warnt „Einstellungen speichern“ später zu Recht
-  if ((cur.daten.geaendert || null) === (A.einstStand || null)) A.einstStand = o.geaendert;
+  if (vorher === (A.einstStand || null)) A.einstStand = o.geaendert;
   A.einstAusDatei = true; A.einstGeaendert = o;
   status('✓ Zuordnung gespeichert (gilt für alle Projekte)', 'ok');
 }
@@ -1150,19 +1190,28 @@ async function standSpeichern(a){
   if (!AW.kuerzelOk(A.kz)){ status('Bitte oben Ihr Kürzel eintragen.', 'err'); return; }
   // Alles beim Klick festhalten: Wird währenddessen das Projekt gewechselt, gehört der Stand trotzdem vollständig zum
   // ursprünglichen Projekt, und Anzeige/Status des neuen Projekts bleiben unberührt.
-  const proj = A.proj, archiv = A.archiv, kz = A.kz.toUpperCase(), labelkit = A.labelkit, pd = projektdaten();
-  const pb = (A.pdatei && A.pdatei.berichte) || {}, berichte = A.berichte.slice();
+  // Vor dem Ablegen alles frisch lesen und neu rechnen: Weicht das von der angezeigten Abrechnung ab (ein Kollege hat inzwischen
+  // Zeiten, Proben oder Berichte geändert), wird nichts gespeichert – die neuen Mengen stehen jetzt da und werden erst geprüft.
+  const angezeigt = JSON.stringify(a), proj = A.proj;
+  if (await ladeAlles() !== true) throw Error('Neu einlesen fehlgeschlagen oder überholt – nicht gespeichert.');
+  if (A.proj !== proj || A.geladenFuer !== proj) throw Error('Projekt inzwischen gewechselt – nicht gespeichert.');
+  a = abrechnungJetzt();
+  if (JSON.stringify(a) !== angezeigt) throw Error('Die Abrechnung hat sich seit der Anzeige geändert (siehe oben). Bitte die Mengen und Hinweise prüfen und dann erneut „Stand speichern“.');
+  const kz = A.kz.toUpperCase(), pd = projektdaten(), pb = (A.pdatei && A.pdatei.berichte) || {}, gelesen = A.quellDateien;
   const noch = () => A.proj === proj;
   if (noch()) status('… Prüfsummen werden berechnet');
   const quellen = [], hash = async (pfad, file) => quellen.push({ datei: pfad, bytes: file.size, geaendert: new Date(file.lastModified).toISOString(), sha256: await sha256Hex(await file.arrayBuffer()) });
   const abr = await bereich(proj, 'belegkit', true), csvOrdner = await unter(proj.dir, ORDNER.abr, true), jsonPfad = await abrPfad(proj);   // JSON: Daten-Ort · CSV: immer „Abrechnung“
-  try{ await hash('_Projekt.json', await (await (await bereich(proj, 'projekt')).getFileHandle('_Projekt.json')).getFile()); }catch(e){}   // Projektdaten, aus denen Objekt/Auftraggeber/Schaden-Nr. stammen
-  for await (const h of abr.values()) if (h.kind === 'file' && (/^Aufwand_.*\.json$/.test(h.name) || h.name === PROJ_DATEI)) await hash(ORDNER.abr + '/' + h.name, await h.getFile());
-  if (labelkit) await hash(ORDNER.lab + '/' + labelkit.datei.name, labelkit.datei);
-  const fo = await bereich(proj, 'fotokit', false); if (fo) try{ await hash(ORDNER.fotos + '/_Bildumbenenner.json', await (await fo.getFileHandle('_Bildumbenenner.json')).getFile()); }catch(e){}
-  const mi = await unter(proj.dir, ORDNER.mitteil, false);
-  if (mi) for (const b of berichte.filter(x => (pb[x.stamm] || {}).abrechnen)) for (const n of b.dateien) await hash(ORDNER.mitteil + '/' + n, await (await mi.getFileHandle(n)).getFile());
-  try{ await hash(EINST_DATEI + ' (Archivordner)', await (await archiv.getFileHandle(EINST_DATEI)).getFile()); }catch(e){}
+  const pruefsumme = async f => { try{ return f ? await sha256Hex(await f.arrayBuffer()) : null; }catch(e){ return 'unlesbar'; } };   // ein geänderter Stand ist im Browser oft nicht mehr lesbar
+  // Im Stand stehen wie bisher: Zeiten, Berichtsangaben, Projektdaten, LabelKit, FotoKit, Einstellungen und nur die abgerechneten Berichte
+  const imStand = q => !q.pfad.startsWith(ORDNER.mitteil + '/') || !!(pb[q.name.replace(/\.(docx?|pdf)$/i, '')] || {}).abrechnen;
+  for (const q of gelesen){
+    let jetzt = null;
+    if (q.dir) try{ jetzt = await (await q.dir.getFileHandle(q.name)).getFile(); }catch(e){ if (e.name !== 'NotFoundError') throw e; }
+    const vorher = await pruefsumme(q.file);
+    if (vorher === 'unlesbar' || vorher !== await pruefsumme(jetzt)) throw Error(`„${q.pfad}“ wurde gerade geändert – bitte „Neu einlesen“ und die Abrechnung prüfen. Nichts gespeichert.`);
+    if (q.file && imStand(q)) await hash(q.pfad, q.file);
+  }
   const namen = []; for (const d of new Set([abr, csvOrdner])) for await (const h of d.values()) namen.push(h.name);
   const gibtEs = async (d, n) => { try{ await d.getFileHandle(n); return true; }catch(e){ return false; } };
   let json, csvName;
