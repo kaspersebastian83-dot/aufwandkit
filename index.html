@@ -1213,6 +1213,11 @@ async function standSpeichern(a){
     if (vorher === 'unlesbar' || vorher !== await pruefsumme(jetzt)) throw Error(`„${q.pfad}“ wurde gerade geändert – bitte „Neu einlesen“ und die Abrechnung prüfen. Nichts gespeichert.`);
     if (q.file) await hash(q.pfad, q.file);
   }
+  // Inzwischen neu angelegte Zeitdatei oder Berichtsangaben (z. B. erstes Speichern eines Kollegen) – gehören in die Rechnung
+  const bekannt = new Set(gelesen.filter(q => q.pfad === ORDNER.abr + '/' + q.name).map(q => q.name));   // Zeiten und Berichtsangaben (fester Pfad „Abrechnung/…“)
+  for await (const h of abr.values())
+    if (h.kind === 'file' && (/^Aufwand_[A-Za-zÄÖÜäöü]{1,6}\.json$/.test(h.name) || h.name === PROJ_DATEI) && !bekannt.has(h.name) && (await h.getFile()).size)
+      throw Error(`„${h.name}“ ist gerade neu dazugekommen – bitte „Neu einlesen“ und die Abrechnung prüfen. Nichts gespeichert.`);
   const namen = []; for (const d of new Set([abr, csvOrdner])) for await (const h of d.values()) namen.push(h.name);
   const gibtEs = async (d, n) => { try{ await d.getFileHandle(n); return true; }catch(e){ return false; } };
   let json, csvName;

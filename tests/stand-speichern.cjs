@@ -96,6 +96,13 @@ const staende = async P => (await fs.readdir(path.join(P, 'Abrechnung'))).filter
       await c.ladeAlles();
       await c.standSpeichern(c.abrechnungJetzt()); assert.ok(n >= 3, 'Entwurf wurde während der Prüfung geändert'); assert.equal((await staende(P)).length, 2);
     }
-    console.log('OK Stand speichern: geänderte Mengen erst prüfen, Prüfsummen vom gelesenen Stand; Berichtsangaben ohne Verlust (5 Fälle)');
+    // 6. Ein Kollege speichert zum ersten Mal (neue Zeitdatei), während die Prüfsummen laufen → nichts abgelegt
+    {
+      const P = await projekt(tmp, '99.9006 Synthetisch F', '99.9006', '1'); let n = 0;
+      const neu = path.join(P, 'Abrechnung', 'Aufwand_BEN.json');
+      const c = await sitzung(tmp, P, '99.9006', { lesen: async name => { if (name === '1__Bericht.pdf' && ++n === 3) await fs.writeFile(neu, JSON.stringify({ format: 'aufwandkit-zeiten', version: 1, projekt: '99.9006', kuerzel: 'BEN', eintraege: [{ id: 'b', datum: '2026-10-02', art: 'ort', rolle: 'Probenehmer', stunden: '4' }] })); } });
+      await c.ladeAlles(); await assert.rejects(c.standSpeichern(c.abrechnungJetzt()), /neu dazugekommen/); assert.deepEqual(await staende(P), []);
+    }
+    console.log('OK Stand speichern: geänderte Mengen erst prüfen, Prüfsummen vom gelesenen Stand; Berichtsangaben ohne Verlust (6 Fälle)');
   }finally{ await fs.rm(tmp, { recursive: true, force: true }); }
 })().catch(e => { console.error(e); process.exitCode = 1; });
