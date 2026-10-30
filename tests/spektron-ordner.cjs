@@ -73,7 +73,7 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     'Pläne/Probenplan 26.0560 Stollenstr. Gladbeck Dr.Ka.probenplan': '{}', 'Pläne/Plan EG.png': 'x',
     'Abrechnung/Aufwand_DRKA.json': '{}', 'Abrechnung/26.0560_Aufwand_2026-10-28.json': '{}', 'Abrechnung/26.0560_Aufwand_2026-10-28.csv': 'x',
     'Abrechnung/_BelegKit_Sicherungen/a.json': '{}',
-    '_Buero/aufgaben/a1.json': '{}', 'Mitteilungen/_Anlagen-Protokoll.txt': 'p', 'Mitteilungen/Anlage.docx': 'x'
+    '_Buero/aufgaben/a1.json': '{}', 'Mitteilungen/_Anlagen-Protokoll.txt': 'p', 'Mitteilungen/_BerichtKit.json': '{}', 'Mitteilungen/Anlage.docx': 'x'
   });
 
   await ok('Spektron-Projekt mit Dateien am früheren Ort: bleibt dort, bis umgezogen wird', async () => {
@@ -95,6 +95,7 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.deepEqual(je.belegkit, ['26.0560_Aufwand_2026-10-28.json', 'Aufwand_DRKA.json', '_BelegKit_Sicherungen']);
     assert.deepEqual(je.buero, ['aufgaben']);
     assert.deepEqual(je.anlagenProtokoll, ['_Anlagen-Protokoll.txt']);
+    assert.deepEqual(je.berichtkit, ['_BerichtKit.json']);
     assert.equal(liste.find(x => x.bereich === 'belegkit').nach, '_Spektron/BelegKit');
   });
 

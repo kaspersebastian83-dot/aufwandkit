@@ -12,6 +12,7 @@
      <Projekt>/_Spektron/BelegKit/     *.json, _BelegKit_Sicherungen/   (früher Abrechnung/; die CSV bleiben in Abrechnung/)
      <Projekt>/_Spektron/Buero/        aufgaben/, vermerke/, frühere Übergaben    (früher _Buero/)
      <Projekt>/_Spektron/Protokolle/   _Anlagen-Protokoll.txt                      (früher Mitteilungen/)
+     <Projekt>/_Spektron/BerichtKit/   _BerichtKit.json  Angaben zum Bericht (Vor Spektron: Mitteilungen/; die Word-Datei bleibt in Mitteilungen/)
 
    Welche Projekte: Projektnummer ab 26.0560 – oder ein „_Spektron“-Ordner ist schon da (von Hand übernommenes Projekt).
    Projekte „Vor Spektron“ bekommen nie einen „_Spektron“-Ordner; dort gilt immer der frühere Ort.
@@ -35,8 +36,8 @@ const HINWEIS_DATEI = 'BITTE NICHT ANFASSEN.txt';
 const HINWEIS_TEXT = [
   'Spektron – Daten der Apps zu diesem Projekt',
   '',
-  'In diesem Ordner speichern die Spektron-Apps (Projektzentrale, LabelKit, FotoKit, ResultKit, PlanKit, BelegKit, BüroKit)',
-  'ihre Arbeitsdaten: Projektdaten, Probenerfassung, Bildangaben, Laborwerte, Plan, Zeiten und Büroaufgaben.',
+  'In diesem Ordner speichern die Spektron-Apps (Projektzentrale, LabelKit, FotoKit, ResultKit, PlanKit, BerichtKit, BelegKit, BüroKit)',
+  'ihre Arbeitsdaten: Projektdaten, Probenerfassung, Bildangaben, Laborwerte, Plan, Berichtsangaben, Zeiten und Büroaufgaben.',
   '',
   'Bitte nichts löschen, umbenennen oder verschieben – auch nicht beim Aufräumen.',
   'Ohne diesen Ordner kennen die Apps das Projekt nicht mehr.',
@@ -65,7 +66,8 @@ const BEREICHE = Object.freeze({
   // nur die Dateien, die BelegKit selbst schreibt (dieselben Muster wie BelegKits Leser): Zeiten je Person, Berichtsangaben, Stände – andere JSON bleiben
   belegkit:           Object.freeze({ app: 'BelegKit', alt: ['Abrechnung'], neu: ['BelegKit'], passt: oder(muster(/^Aufwand_[A-Za-zÄÖÜäöü]{1,6}\.json$/), datei('_Abrechnung.json'), muster(/^.+_Aufwand_\d{4}-\d{2}-\d{2}(?:_\d+)?\.json$/i), ordner('_BelegKit_Sicherungen')) }),
   buero:              Object.freeze({ app: 'BüroKit, Projektzentrale', alt: ['_Buero'], neu: ['Buero'], passt: () => true }),
-  anlagenProtokoll:   Object.freeze({ app: 'Projektzentrale, PlanKit', alt: ['Mitteilungen'], neu: ['Protokolle'], passt: datei('_Anlagen-Protokoll.txt') })
+  anlagenProtokoll:   Object.freeze({ app: 'Projektzentrale, PlanKit', alt: ['Mitteilungen'], neu: ['Protokolle'], passt: datei('_Anlagen-Protokoll.txt') }),
+  berichtkit:         Object.freeze({ app: 'BerichtKit', alt: ['Mitteilungen'], neu: ['BerichtKit'], passt: datei('_BerichtKit.json') })
 });
 
 /** Projektnummer → Zahl zum Vergleichen (26.0560 → 26000560), sonst null. Gleiche Regel wie SPEKTRON-ORDNERNAME. */
