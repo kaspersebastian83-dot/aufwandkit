@@ -68,7 +68,7 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   const txt = (await leiste.textContent()).replace(/\s+/g, ' ');
   assert.match(txt, /26\.0142 Teststadt/); assert.match(txt, /EFH, Musterweg 7, 52525 Heinsberg/);
   await leiste.locator('.ml-wer', {hasText: 'Anna Beispiel'}).waitFor({timeout: 8000});   // zuständige Person (Mitarbeiterliste + _Projekt.json)
-  for (const n of ['LabelKit', 'FotoKit', 'ResultKit', 'PlanKit', 'BelegKit']) assert.match(txt, new RegExp(n));
+  for (const n of ['LabelKit', 'FotoKit', 'ResultKit', 'PlanKit', 'BerichtKit', 'BelegKit']) assert.match(txt, new RegExp(n));
   const schritt = id => leiste.locator('.ml-step', {hasText: {label: 'LabelKit', fotos: 'FotoKit', ergebnis: 'ResultKit', plan: 'PlanKit', beleg: 'BelegKit'}[id]});
   assert.ok(await schritt('label').evaluate(e => e.classList.contains('done')), 'LabelKit erledigt');
   assert.ok(await schritt('fotos').evaluate(e => e.classList.contains('done')), 'FotoKit erledigt');
@@ -76,12 +76,12 @@ const A = '26.0142 Teststadt', B = '26.0150 Köln & Süd + 50% #Hof';
   assert.ok(!(await schritt('plan').evaluate(e => e.classList.contains('done'))), 'PlanKit offen');
   assert.ok(await schritt(APP).evaluate(e => e.classList.contains('hier')), 'diese App ist markiert');
   assert.equal(await leiste.locator('.ml-step.hier').getAttribute('aria-current'), 'page');
-  const naechster = APP === 'plan' ? /Weiter: BelegKit/ : /Weiter: PlanKit/;
+  const naechster = APP === 'plan' ? /Weiter: BerichtKit/ : /Weiter: PlanKit/;
   assert.match(await leiste.locator('.ml-weiter').textContent(), naechster);
   assert.match(await leiste.locator('.ml-weiter').getAttribute('href'), /#projekt=26\.0142%20Teststadt$/);
-  assert.equal(await leiste.locator('.ml-weiter').getAttribute('target'), APP === 'plan' ? 'aufwandkit' : 'plankit');
+  assert.equal(await leiste.locator('.ml-weiter').getAttribute('target'), APP === 'plan' ? 'berichtkit' : 'plankit');
   // Schritte der anderen Apps sind Links mit demselben Projekt, die eigene App ist keiner
-  assert.equal(await leiste.locator('a.ml-step').count(), 4);
+  assert.equal(await leiste.locator('a.ml-step').count(), 5);
   // „💬 Rückmeldung“: Programm, Version, nur die Projektnummer (kein Ort), eigenes Fenster
   const rm = leiste.locator('a.ml-rm'), rmUrl = new URL(await rm.getAttribute('href'), 'http://x/app/');
   assert.equal(rmUrl.pathname, '/rueckmeldung/');
