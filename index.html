@@ -1322,7 +1322,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     ['bericht', 'BerichtKit', 'berichtkit',  '../berichtkit/',     '#b0683c'],
     ['beleg', 'BelegKit',  'aufwandkit',     '../aufwandkit/',     '#2f7d6d']
   ];
-  var ZENTRALE = '../Projektzentrale/', MAX = 6, RUECKMELDUNG = '../rueckmeldung/', RM_APP = { label: 'labelkit', fotos: 'fotokit', ergebnis: 'resultkit', plan: 'plankit', beleg: 'belegkit' };
+  var ZENTRALE = '../Projektzentrale/', MAX = 6, RUECKMELDUNG = '../rueckmeldung/', RM_APP = { label: 'labelkit', fotos: 'fotokit', ergebnis: 'resultkit', plan: 'plankit', bericht: 'berichtkit', beleg: 'belegkit' };
   var ich = '', kompakt = false, projektName = null, version = null, name = '', stand = null, zuletzt = [], bar = null, pop = null, timer = 0, lauf = 0;
   var nfc = function(s){ try{ return String(s).normalize('NFC'); }catch(e){ return String(s); } };
   /* Kurzfassung von SPEKTRON-ORDNERNAME v1 (Projektzentrale): Kürzel am Ende des Ordnernamens anhand der Mitarbeiterliste */
@@ -1446,9 +1446,9 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       var pl = await bereich('plankit', 'Pläne');
       if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
     }catch(e6){}
-    try{   // BerichtKit: Word-Bericht „<n>._Mitteilung_<Nr>.docx“ in „Mitteilungen“ (bleibt dort, auch in Spektron-Projekten)
+    try{   // Bericht in „Mitteilungen“ (bleibt dort, auch in Spektron-Projekten): „1._Mitteilung_26.0528.docx“ (BerichtKit) wie „1__Mitteilung.docx“
       var mi = await unterordner(proj, 'Mitteilungen');
-      if (mi) for await (var m of mi.values()) if (m.kind === 'file' && /^\d+\._Mitteilung_.*\.docx$/i.test(nfc(m.name))){ s.bericht = true; break; }
+      if (mi) for await (var m of mi.values()) if (m.kind === 'file' && /^\d+[._\s]*Mitteilung(?![a-zäöüß]).*\.docx$/i.test(nfc(m.name))){ s.bericht = true; break; }
     }catch(e9){}
     try{
       var ab = await bereich('belegkit', 'Abrechnung');
