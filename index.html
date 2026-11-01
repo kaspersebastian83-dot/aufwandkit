@@ -159,7 +159,6 @@ table.abr tr.summe td,table.abr tfoot td{font-weight:600}
     <span class="folder" id="projekt"></span>
   </div>
   <div class="bar">
-    <button id="bZentrale" class="primary" title="Zur Projektzentrale">← Projektzentrale</button>
     <button id="bWechsel" title="Anderes Projekt wählen">Projekt wechseln</button>
     <button id="bNeu" title="Alle Dateien des Projekts neu lesen (z. B. nachdem Kollegen etwas eingetragen haben)">Neu einlesen</button>
     <span id="status" role="status" aria-live="polite"></span>
@@ -454,9 +453,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.15.0';
-const APP_DATE = '2026-10-30';
+const APP_VERSION = '1.16.0';
+const APP_DATE = '2026-11-01';
 const CHANGELOG = [
+  ['1.16.0', '01.11.2026', 'Spektron-Leiste v2: Schritt „BerichtKit · Brandbericht“ bzw. „· Asbestbericht“, wenn BerichtKit sich die Berichtsart des Projekts gemerkt hat (der Link öffnet genau diese); Haken bei BerichtKit nur für einen gespeicherten Bericht dieser Art, dessen Datei noch in „Mitteilungen“ liegt (Projekte ohne BerichtKit-Angaben wie bisher nach dem Dateinamen). Nach dem gespeicherten Bericht heißt der Knopf „Weiter: Ans Büro übergeben →“ (Projektzentrale, eigenes Fenster). „Weiter“ nennt im Tooltip Ziel und Grund. Keine Nummern mehr an den Schritten (✓ reicht), die eigene App ist deutlicher markiert, „Aktuelles Projekt“ im Projektmenü lädt nicht mehr neu. Der Knopf „← Projektzentrale“ ist weg (er öffnete die Projektzentrale im BelegKit-Fenster) – „⌂ Projektzentrale“ in der Leiste öffnet sie im eigenen Fenster.'],
   ['1.15.0', '30.10.2026', 'Spektron-Leiste: neuer Schritt „BerichtKit“ (Asbest-Untersuchungsbericht) zwischen PlanKit und BelegKit – Haken, sobald ein Bericht in „Mitteilungen“ liegt. Gemeinsames Modul spektron-ordner.js: neuer Bereich „BerichtKit“ (Angaben zum Bericht in „_Spektron/BerichtKit“).'],
   ['1.14.0', '29.10.2026', 'Prüfbericht vom 29.10., Teil 2: „Stand speichern“ liest vorher alles neu und rechnet nach. Hat ein Kollege inzwischen Zeiten, Proben oder Berichte geändert, wird nichts abgelegt – die neuen Mengen stehen dann da und werden erst geprüft; der zweite Klick speichert. Die Prüfsummen im Stand gehören genau zu den gelesenen Dateien (bisher konnte ein Stand mit 1 Stunde die Prüfsumme einer inzwischen auf 7 Stunden geänderten Zeitdatei bekommen, und BüroKit hielt ihn für aktuell). Berichtsangaben (abrechnen, Seitenzahl) und Zuordnungen der Probenarten: Schreiben zwei Kollegen gleichzeitig, geht keine Änderung mehr verloren.'],
   ['1.13.1', '29.10.2026', 'Gemeinsames Modul spektron-ordner.js: Beim Umzug und bei der Ortswahl zählen in „Abrechnung“ nur noch die Dateien, die BelegKit selbst schreibt (Aufwand_<Kürzel>.json, _Abrechnung.json, <Nr>_Aufwand_<Datum>.json, _BelegKit_Sicherungen) – andere JSON dort bleiben liegen.'],
@@ -1288,7 +1288,6 @@ function info(){
 }
 $('ver').onclick = info;
 $('hilfe').onclick = info;
-$('bZentrale').onclick = () => { location.href = '../Projektzentrale/'; };
 $('bWechsel').onclick = async () => { if (!A.archiv) return; try{ await sichereMeine(); }catch(e){ return; } A.proj = null; try{ PROJEKT_URL.setzen(null); }catch(e){} document.title = APP_NAME; zeigeAuswahl().catch(e => meldung('err', esc(e.message))); };
 $('bNeu').onclick = async () => { if (!A.proj) return; $('bNeu').disabled = true; try{ await ladeAlles(); }finally{ $('bNeu').disabled = !A.proj; } };
 
@@ -1300,7 +1299,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
 </script>
 <!-- MOSAIK-LEISTE:BEGIN -->
 <script>
-/* ===== MOSAIK-LEISTE v1 – in allen Apps der Familie identisch halten (LabelKit, FotoKit, ResultKit, PlanKit, BerichtKit, BelegKit) =====
+/* ===== MOSAIK-LEISTE v2 – in allen Apps der Familie identisch halten (LabelKit, FotoKit, ResultKit, PlanKit, BerichtKit, BelegKit) =====
    Links steht der Name der App-Suite „Spektron“ (Arbeitsname war „Mosaik“; interne Kennungen bleiben).
    Schmale Leiste oben: Projekt (mit Wechsel zu den zuletzt benutzten), die sechs Arbeitsschritte mit Haken und nächstem Schritt,
    „Weiter“-Knopf. Ohne geöffnetes Projekt: „Mit <letztes Projekt> weitermachen“.
@@ -1311,7 +1310,13 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
    Optional opt.projektName: Funktion, die die bestätigte Projektzuordnung statt der angeforderten URL liefert (FotoKit).
    Optional opt.version: Version der App (Text oder Funktion) für „💬 Rückmeldung“ rechts in der Leiste und im Projektmenü – öffnet
    ../rueckmeldung/ im eigenen Fenster mit Programm, Version und Projektnummer (nur die Nummer, kein Ort).
-   Projektdaten: window.SpektronProjectData (LabelKit, PlanKit) liefert den aktuellen Stand samt „möglicherweise veraltet“; sonst _Projekt.json direkt. */
+   Projektdaten: window.SpektronProjectData (LabelKit, PlanKit) liefert den aktuellen Stand samt „möglicherweise veraltet“; sonst _Projekt.json direkt.
+   v2 (01.11.2026): BerichtKit-Schritt mit Berichtsart aus _BerichtKit.json (Feld „art“, sonst Art des zuletzt gespeicherten Berichts) –
+   „BerichtKit · Brandbericht“, Link mit &art=; ohne gemerkte Art nur „BerichtKit“ (BerichtKit entscheidet selbst). Haken nur bei
+   gespeichertem Bericht dieser Art, dessen Datei in „Mitteilungen“ noch da ist (ohne _BerichtKit.json wie v1: Dateiname). Nach dem
+   gespeicherten Bericht „Weiter: Ans Büro übergeben →“ (Projektzentrale, liest keine Büroaufgaben; fertig erst mit BelegKit-Stand).
+   „Weiter“ nennt Ziel und Grund im Tooltip. Keine Nummern an den Schritten. „Aktuelles Projekt“ im Menü lädt nicht neu.
+   MosaikLeiste.oeffnen(href, fenster) öffnet einen #projekt=-Link wie die Leiste (lädt im benannten Fenster neu). */
 (function(){
   if (window.MosaikLeiste) return;
   var APPS = [
@@ -1322,6 +1327,10 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     ['bericht', 'BerichtKit', 'berichtkit',  '../berichtkit/',     '#b0683c'],
     ['beleg', 'BelegKit',  'aufwandkit',     '../aufwandkit/',     '#2f7d6d']
   ];
+  var BUERO = ['buero', 'Ans Büro übergeben', 'projektzentrale', '../Projektzentrale/', '#5b6b78'];   // kein Schritt der Leiste, nur Ziel von „Weiter“
+  var BERICHTSART = { asbest: 'Asbestbericht', brand: 'Brandbericht' };
+  var GRUND = { label: 'noch keine Proben-Datei aus LabelKit', fotos: 'noch keine Fotos in FotoKit zugeordnet', ergebnis: 'noch keine Laborergebnisse in ResultKit übernommen',
+    plan: 'noch kein Probenplan in PlanKit', beleg: 'noch kein Abrechnungsstand in BelegKit' };
   var ZENTRALE = '../Projektzentrale/', MAX = 6, RUECKMELDUNG = '../rueckmeldung/', RM_APP = { label: 'labelkit', fotos: 'fotokit', ergebnis: 'resultkit', plan: 'plankit', bericht: 'berichtkit', beleg: 'belegkit' };
   var ich = '', kompakt = false, projektName = null, version = null, name = '', stand = null, zuletzt = [], bar = null, pop = null, timer = 0, lauf = 0;
   var nfc = function(s){ try{ return String(s).normalize('NFC'); }catch(e){ return String(s); } };
@@ -1406,7 +1415,29 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     }); });
   }
   function urlName(){ try{ return projektName ? projektName() || '' : new URLSearchParams(location.hash.slice(1)).get('projekt') ?? new URLSearchParams(location.search).get('projekt') ?? ''; }catch(e){ return ''; } }
-  function href(app, projekt){ return (app[0] === ich ? '' : app[3]) + (projekt ? '#projekt=' + encodeURIComponent(projekt) : ''); }   // die eigene App relativ zur aktuellen Seite (auch ohne den Pfad /<App>/)
+  function href(app, projekt){   // die eigene App relativ zur aktuellen Seite (auch ohne den Pfad /<App>/)
+    if (app[0] === 'buero') return app[3] + '#projekt=' + encodeURIComponent(projekt) + (stand && stand.berichtDatei ? '&uebergabe=' + encodeURIComponent('Mitteilungen/' + stand.berichtDatei) : '');
+    var art = app[0] === 'bericht' && projekt && nfc(projekt) === nfc(name) && stand && stand.berichtArt ? '&art=' + stand.berichtArt : '';   // gemerkte Berichtsart nur für das aktuelle Projekt
+    return (app[0] === ich ? '' : app[3]) + (projekt ? '#projekt=' + encodeURIComponent(projekt) + art : '');
+  }
+  function schrittName(a){ return a[0] === 'bericht' && stand && BERICHTSART[stand.berichtArt] ? a[1] + ' · ' + BERICHTSART[stand.berichtArt] : a[1]; }
+  /* _BerichtKit.json (BerichtKit): mit spektron-ordner.js dessen Ort, sonst _Spektron/BerichtKit, dann Mitteilungen */
+  async function berichtDatei(proj, mi){
+    var orte = [], SO = window.SpektronOrdner;
+    if (SO) try{ var o = (await SO.ort(proj, 'berichtkit')).dir; if (o) orte.push(o); }catch(e){}
+    if (!orte.length){ var sp = await unterordner(proj, '_Spektron'); var bk = sp ? await unterordner(sp, 'BerichtKit') : null; if (bk) orte.push(bk); if (mi) orte.push(mi); }
+    for (var i = 0; i < orte.length; i++){
+      try{ var j = JSON.parse(await (await (await orte[i].getFileHandle('_BerichtKit.json')).getFile()).text()); if (j && j.format === 'spektron-bericht') return j; }catch(e){}
+    }
+    return null;
+  }
+  /* Gemerkte Berichtsart wie BerichtKit (bericht-vorgaben.js artGemerkt): Feld „art“, sonst Art des zuletzt gespeicherten Berichts (ohne Angabe: asbest) */
+  function artVon(x){ var a = String(x == null ? '' : x).trim().toLowerCase(); return BERICHTSART[a] ? a : ''; }
+  function gemerkteArt(j){
+    var a = artVon(j && j.art); if (a) return a;
+    var b = (j && Array.isArray(j.berichte) ? j.berichte : []).filter(function(x){ return x && x.datei; }).pop();
+    return b ? (artVon(b.art) || (b.art ? '' : 'asbest')) : '';
+  }
 
   /* Ordnerstand: nur Namen prüfen, Fotos nur über die eine Datei (der Ordner kann tausende Bilder enthalten) */
   function unterordner(proj, wunsch){
@@ -1428,7 +1459,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     if (!proj) return null;
     /* Spektron-Ordner (spektron-ordner.js, falls geladen): App-Daten künftig in „_Spektron/…“; sonst wie bisher. */
     async function bereich(b, alt){ var SO = window.SpektronOrdner; if (SO) try{ return (await SO.ort(proj, b)).dir; }catch(eb){} return alt ? unterordner(proj, alt) : proj; }
-    var s = { label: false, fotos: false, ergebnis: false, plan: false, bericht: false, beleg: false, objekt: '', anzeige: '', person: '' }, zust = null;
+    var s = { label: false, fotos: false, ergebnis: false, plan: false, bericht: false, beleg: false, berichtArt: '', berichtDatei: '', objekt: '', anzeige: '', person: '' }, zust = null;
     var activeData = window.SpektronProjectData && window.SpektronProjectData(name);
     if (activeData){ var activeObjekt = typeof activeData.data.objekt === 'string' ? activeData.data.objekt : activeData.data.daten && activeData.data.daten.objekt; if (typeof activeObjekt === 'string') s.objekt = activeObjekt.trim(); zust = activeData.data.zustaendig; }
     else try{
@@ -1447,8 +1478,14 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
     }catch(e6){}
     try{   // Bericht in „Mitteilungen“ (bleibt dort, auch in Spektron-Projekten): „1._Mitteilung_26.0528.docx“ (BerichtKit) wie „1__Mitteilung.docx“
-      var mi = await unterordner(proj, 'Mitteilungen');
-      if (mi) for await (var m of mi.values()) if (m.kind === 'file' && /^\d+[._\s]*Mitteilung(?![a-zäöüß]).*\.docx$/i.test(nfc(m.name))){ s.bericht = true; break; }
+      var mi = await unterordner(proj, 'Mitteilungen'), da = {}, mitteilung = false;
+      if (mi) for await (var m of mi.values()) if (m.kind === 'file'){ da[nfc(m.name).toLowerCase()] = true; if (/^\d+[._\s]*Mitteilung(?![a-zäöüß]).*\.docx$/i.test(nfc(m.name))) mitteilung = true; }
+      var bj = await berichtDatei(proj, mi), art = gemerkteArt(bj);
+      s.berichtArt = art;
+      if (art){   // Haken nur für einen gespeicherten Bericht der gemerkten Art, dessen Datei noch da ist
+        var gs = (Array.isArray(bj.berichte) ? bj.berichte : []).filter(function(b){ return b && typeof b.datei === 'string' && (artVon(b.art) || (b.art ? '' : 'asbest')) === art && da[nfc(b.datei).toLowerCase()]; });
+        if (gs.length){ s.bericht = true; s.berichtDatei = gs[gs.length - 1].datei; }
+      } else s.bericht = mitteilung;   // ohne gemerkte Art (kein _BerichtKit.json, nichts gespeichert): wie v1 nach dem Dateinamen
     }catch(e9){}
     try{
       var ab = await bereich('belegkit', 'Abrechnung');
@@ -1468,12 +1505,21 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
   }
   function rmFrisch(el){ el.addEventListener('click', function(){ el.setAttribute('href', rmHref()); }); return el; }   // beim Klick mit aktuellem Projekt und aktueller Version
   function rmLink(cls){ return rmFrisch(h('a', { class: cls, href: rmHref(), target: 'rueckmeldung', rel: 'noopener', title: 'Fehler oder Wunsch melden – öffnet das Rückmeldeformular, Programm, Version und Projektnummer sind schon eingetragen' }, h('b', { text: '💬', 'aria-hidden': 'true' }), h('span', { text: 'Rückmeldung' }))); }
+  /* Nächster offener Schritt → { app, frueher } – „Ans Büro übergeben“ zwischen BerichtKit und BelegKit: offen, solange ein Bericht
+     gespeichert, aber noch kein BelegKit-Stand da ist (Büroaufgaben liest die Leiste nicht) */
   function naechster(){
     if (!stand) return null;
-    var i0 = APPS.findIndex(function(a){ return a[0] === ich; }), n = APPS.length;
-    for (var d = 1; d < n; d++){ var a = APPS[(i0 + d) % n]; if ((i0 + d) < n && !stand[a[0]]) return a; }   // zuerst ein späterer Schritt …
-    for (var e = 1; e < n; e++){ var b = APPS[(i0 + e) % n]; if ((i0 + e) >= n && !stand[b[0]]) return b; }   // … sonst der erste offene davor
+    var reihe = APPS.slice(0, 5).concat([BUERO], APPS.slice(5)), n = reihe.length;
+    var offen = function(a){ return a[0] === 'buero' ? stand.bericht && !stand.beleg : !stand[a[0]]; };
+    var i0 = reihe.findIndex(function(a){ return a[0] === ich; });
+    for (var d = 1; d < n; d++){ var a = reihe[(i0 + d) % n]; if ((i0 + d) < n && offen(a)) return { app: a, frueher: false }; }   // zuerst ein späterer Schritt …
+    for (var e = 1; e < n; e++){ var b = reihe[(i0 + e) % n]; if ((i0 + e) >= n && offen(b)) return { app: b, frueher: true }; }   // … sonst der erste offene davor
     return null;
+  }
+  function grund(a){
+    if (a[0] === 'buero') return 'Bericht gespeichert' + (stand.berichtDatei ? ' (' + stand.berichtDatei + ')' : '') + ' – in der Projektzentrale ans Büro übergeben. Schon übergeben? Die Projektzentrale zeigt den Stand.';
+    if (a[0] === 'bericht') return BERICHTSART[stand.berichtArt] ? 'noch kein ' + BERICHTSART[stand.berichtArt] + ' gespeichert' : 'noch kein Bericht in „Mitteilungen“ – BerichtKit wählt die Berichtsart nach den Proben';
+    return GRUND[a[0]] || '';
   }
   function css(){
     if (document.getElementById('mosaikLeisteCss')) return;
@@ -1492,7 +1538,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       '#mosaikLeiste .ml-step i{width:16px;height:16px;border-radius:50%;display:inline-grid;place-items:center;font:700 9.5px/1 inherit;font-style:normal;border:1.5px solid var(--ac);color:var(--ac)}' +
       '#mosaikLeiste .ml-step.done i{background:var(--ac);color:#0f1820}' +
       '#mosaikLeiste .ml-step.next i{box-shadow:0 0 0 3px color-mix(in srgb,var(--ac) 35%,transparent)}' +
-      '#mosaikLeiste .ml-step.hier{background:rgba(255,255,255,.14);color:#fff;font-weight:650;cursor:default}' +
+      '#mosaikLeiste .ml-step.hier{background:rgba(255,255,255,.14);color:#fff;font-weight:650;cursor:default;box-shadow:inset 0 -2px 0 var(--ac)}' +
       '#mosaikLeiste .ml-weiter{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 11px;background:var(--ac);color:#fff;font-weight:650}' +
       '#mosaikLeiste .ml-weiter:hover{filter:brightness(1.12)}' +
       '#mosaikLeiste .ml-hinweis{color:#9fb1be}' +
@@ -1500,7 +1546,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       '#mosaikLeistePop{position:fixed;top:40px;left:8px;z-index:2147483001;min-width:260px;max-width:min(92vw,420px);background:#fff;color:#1b2a35;border-radius:10px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:6px;font:13px/1.35 "Segoe UI",system-ui,-apple-system,Arial,sans-serif}' +
       '#mosaikLeistePop h6{margin:6px 10px 4px;font:600 10.5px/1 inherit;letter-spacing:.06em;text-transform:uppercase;color:#6a7c89}' +
       '#mosaikLeistePop a{display:block;padding:8px 10px;border-radius:7px;color:inherit;text-decoration:none}#mosaikLeistePop a:hover,#mosaikLeistePop a:focus-visible{background:#eaf1f6;outline:0}' +
-      '#mosaikLeistePop a.aktuell{font-weight:650;background:#f2f6f9}#mosaikLeistePop hr{border:0;border-top:1px solid #e2e9ee;margin:5px 4px}' +
+      '#mosaikLeistePop .aktuell{display:block;padding:8px 10px;border-radius:7px;font-weight:650;background:#f2f6f9;cursor:default}#mosaikLeistePop hr{border:0;border-top:1px solid #e2e9ee;margin:5px 4px}' +
       '#mosaikLeiste.ml-kompakt{height:24px;font-size:12px;padding:0 8px}#mosaikLeiste.ml-kompakt .ml-home,#mosaikLeiste.ml-kompakt .ml-proj,#mosaikLeiste.ml-kompakt .ml-step,#mosaikLeiste.ml-kompakt .ml-weiter,#mosaikLeiste.ml-kompakt .ml-rm{height:20px;padding:0 7px}#mosaikLeiste.ml-kompakt .ml-step i{width:14px;height:14px;font-size:9px}#mosaikLeistePop{top:30px}' +
       '#mosaikLeiste.ml-eng .ml-marke,#mosaikLeiste.ml-eng .ml-obj,#mosaikLeiste.ml-eng .ml-rm span{display:none}' +   // passt nicht: erst Marke, Objekt/Person, Rückmeldungstext …
       '#mosaikLeiste.ml-enger .ml-step span,#mosaikLeiste.ml-enger .ml-home span{display:none}#mosaikLeiste.ml-enger .ml-step.hier span{display:inline}' +   // … dann die Schrittnamen (außer der eigenen App) …
@@ -1517,7 +1563,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     pop = h('div', { id: 'mosaikLeistePop', role: 'menu' });
     var app = APPS.filter(function(a){ return a[0] === ich; })[0];
     var rest = zuletzt.filter(function(n){ return nfc(n) !== nfc(name); });
-    if (name) pop.appendChild(h('h6', { text: 'Aktuelles Projekt' })), pop.appendChild(h('a', { class: 'aktuell', href: href(app, name), text: name, role: 'menuitem' }));
+    if (name) pop.appendChild(h('h6', { text: 'Aktuelles Projekt' })), pop.appendChild(h('div', { class: 'aktuell', text: name, title: 'Ist hier schon geöffnet' }));   // kein Link: würde die App neu laden
     if (rest.length){ pop.appendChild(h('h6', { text: 'Zuletzt geöffnet' })); rest.forEach(function(n){ pop.appendChild(h('a', { href: href(app, n), text: n, role: 'menuitem' })); }); }
     pop.appendChild(h('hr'));
     pop.appendChild(h('a', { href: ZENTRALE, target: 'projektzentrale', text: 'Alle Projekte … (Projektzentrale)', role: 'menuitem' }));
@@ -1552,17 +1598,18 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       bar.appendChild(h('span', { class: 'ml-sp' }));
       var steps = h('span', { class: 'ml-steps' });
       var nx = naechster();
-      APPS.forEach(function(a, i){
-        var done = !!(stand && stand[a[0]]), cls = 'ml-step' + (done ? ' done' : '') + (nx && nx[0] === a[0] ? ' next' : '') + (a[0] === ich ? ' hier' : '');
-        var ic = h('i', { text: done ? '✓' : String(i + 1), 'aria-hidden': 'true' }), sp = h('span', { text: a[1] });
-        var t = a[1] + (done ? ' – erledigt' : '') + (a[0] === ich ? ' (diese App)' : '');
+      APPS.forEach(function(a){
+        var done = !!(stand && stand[a[0]]), cls = 'ml-step' + (done ? ' done' : '') + (nx && nx.app[0] === a[0] ? ' next' : '') + (a[0] === ich ? ' hier' : '');
+        var ic = h('i', { text: done ? '✓' : '', 'aria-hidden': 'true' }), sp = h('span', { text: schrittName(a) });
+        var t = schrittName(a) + (done ? ' – erledigt' + (a[0] === 'bericht' && stand.berichtDatei ? ' (' + stand.berichtDatei + ')' : '') : '') + (a[0] === ich ? ' (diese App)' : '');
         var el = a[0] === ich ? h('span', { class: cls, 'aria-current': 'page', title: t }, ic, sp) : h('a', { class: cls, href: href(a, name), target: a[2], title: t }, ic, sp);
         el.style.setProperty('--ac', a[4]); steps.appendChild(el);
       });
       bar.appendChild(steps);
       if (nx){
-        var w = h('a', { class: 'ml-weiter', href: href(nx, name), target: nx[2], title: 'Nächster offener Schritt dieses Projekts' }, h('span', { text: 'Weiter: ' + nx[1] }), h('b', { text: '→', 'aria-hidden': 'true' }));
-        w.style.setProperty('--ac', nx[4]); bar.appendChild(w);
+        var zn = schrittName(nx.app);
+        var w = h('a', { class: 'ml-weiter', href: href(nx.app, name), target: nx.app[2], title: 'Weiter zu ' + zn + ': ' + grund(nx.app) + (nx.frueher ? ' (früherer Schritt, noch offen)' : '') + ' – öffnet ' + (nx.app[0] === 'buero' ? 'die Projektzentrale' : zn) + ' im eigenen Fenster.' }, h('span', { text: 'Weiter: ' + zn }), h('b', { text: '→', 'aria-hidden': 'true' }));
+        w.style.setProperty('--ac', nx.app[4]); bar.appendChild(w);
       }
     }else{
       var l = zuletzt[0];
@@ -1622,9 +1669,9 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     };
     if (document.body) los(); else document.addEventListener('DOMContentLoaded', los);
   }
-  window.MosaikLeiste = { start: start, aktualisieren: aktualisieren };
+  window.MosaikLeiste = { start: start, aktualisieren: aktualisieren, oeffnen: projektNavigation };
 })();
-/* ===== Ende MOSAIK-LEISTE v1 ===== */
+/* ===== Ende MOSAIK-LEISTE v2 ===== */
 MosaikLeiste.start('beleg', { version: APP_VERSION });
 </script>
 <!-- MOSAIK-LEISTE:END -->
