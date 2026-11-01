@@ -1312,7 +1312,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
    ../rueckmeldung/ im eigenen Fenster mit Programm, Version und Projektnummer (nur die Nummer, kein Ort).
    Projektdaten: window.SpektronProjectData (LabelKit, PlanKit) liefert den aktuellen Stand samt „möglicherweise veraltet“; sonst _Projekt.json direkt.
    v2 (01.11.2026): BerichtKit-Schritt mit Berichtsart aus _BerichtKit.json (Feld „art“, sonst Art des zuletzt gespeicherten Berichts) –
-   „BerichtKit · Brandbericht“, Link mit &art=; ohne gemerkte Art nur „BerichtKit“ (BerichtKit entscheidet selbst). Haken nur bei
+   „BerichtKit · Brandbericht“, Link mit &art=…&auto=1 (schon gemerkt); ohne gemerkte Art nur „BerichtKit“ (BerichtKit entscheidet). Haken nur bei
    gespeichertem Bericht dieser Art, dessen Datei in „Mitteilungen“ noch da ist (ohne _BerichtKit.json wie v1: Dateiname). Nach dem
    gespeicherten Bericht „Weiter: Ans Büro übergeben →“ (Projektzentrale, liest keine Büroaufgaben; fertig erst mit BelegKit-Stand).
    „Weiter“ nennt Ziel und Grund im Tooltip. Keine Nummern an den Schritten. „Aktuelles Projekt“ im Menü lädt nicht neu.
@@ -1417,7 +1417,8 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
   function urlName(){ try{ return projektName ? projektName() || '' : new URLSearchParams(location.hash.slice(1)).get('projekt') ?? new URLSearchParams(location.search).get('projekt') ?? ''; }catch(e){ return ''; } }
   function href(app, projekt){   // die eigene App relativ zur aktuellen Seite (auch ohne den Pfad /<App>/)
     if (app[0] === 'buero') return app[3] + '#projekt=' + encodeURIComponent(projekt) + (stand && stand.berichtDatei ? '&uebergabe=' + encodeURIComponent('Mitteilungen/' + stand.berichtDatei) : '');
-    var art = app[0] === 'bericht' && projekt && nfc(projekt) === nfc(name) && stand && stand.berichtArt ? '&art=' + stand.berichtArt : '';   // gemerkte Berichtsart nur für das aktuelle Projekt
+    // gemerkte Berichtsart nur für das aktuelle Projekt; &auto=1: schon gemerkt – BerichtKit prüft beim Öffnen selbst, ein alter Link überschreibt nichts
+    var art = app[0] === 'bericht' && projekt && nfc(projekt) === nfc(name) && stand && stand.berichtArt ? '&art=' + stand.berichtArt + '&auto=1' : '';
     return (app[0] === ich ? '' : app[3]) + (projekt ? '#projekt=' + encodeURIComponent(projekt) + art : '');
   }
   function schrittName(a){ return a[0] === 'bericht' && stand && BERICHTSART[stand.berichtArt] ? a[1] + ' · ' + BERICHTSART[stand.berichtArt] : a[1]; }
@@ -1459,7 +1460,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     if (!proj) return null;
     /* Spektron-Ordner (spektron-ordner.js, falls geladen): App-Daten künftig in „_Spektron/…“; sonst wie bisher. */
     async function bereich(b, alt){ var SO = window.SpektronOrdner; if (SO) try{ return (await SO.ort(proj, b)).dir; }catch(eb){} return alt ? unterordner(proj, alt) : proj; }
-    var s = { label: false, fotos: false, ergebnis: false, plan: false, bericht: false, beleg: false, berichtArt: '', berichtDatei: '', objekt: '', anzeige: '', person: '' }, zust = null;
+    var s = { label: false, fotos: false, ergebnis: false, plan: false, bericht: false, beleg: false, berichtArt: '', berichtDatei: '', berichtWeg: '', objekt: '', anzeige: '', person: '' }, zust = null;
     var activeData = window.SpektronProjectData && window.SpektronProjectData(name);
     if (activeData){ var activeObjekt = typeof activeData.data.objekt === 'string' ? activeData.data.objekt : activeData.data.daten && activeData.data.daten.objekt; if (typeof activeObjekt === 'string') s.objekt = activeObjekt.trim(); zust = activeData.data.zustaendig; }
     else try{
@@ -1483,9 +1484,11 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       var bj = await berichtDatei(proj, mi), art = gemerkteArt(bj);
       s.berichtArt = art;
       if (art){   // Haken nur für einen gespeicherten Bericht der gemerkten Art, dessen Datei noch da ist
-        var gs = (Array.isArray(bj.berichte) ? bj.berichte : []).filter(function(b){ return b && typeof b.datei === 'string' && (artVon(b.art) || (b.art ? '' : 'asbest')) === art && da[nfc(b.datei).toLowerCase()]; });
+        var gb = (Array.isArray(bj.berichte) ? bj.berichte : []).filter(function(b){ return b && typeof b.datei === 'string' && (artVon(b.art) || (b.art ? '' : 'asbest')) === art; });
+        var gs = gb.filter(function(b){ return da[nfc(b.datei).toLowerCase()]; });
         if (gs.length){ s.bericht = true; s.berichtDatei = gs[gs.length - 1].datei; }
-      } else s.bericht = mitteilung;   // ohne gemerkte Art (kein _BerichtKit.json, nichts gespeichert): wie v1 nach dem Dateinamen
+        else if (gb.length) s.berichtWeg = gb[gb.length - 1].datei;   // gespeichert, aber die Datei ist nicht mehr da
+      } else if (!bj) s.bericht = mitteilung;   // ohne _BerichtKit.json: wie v1 nach dem Dateinamen
     }catch(e9){}
     try{
       var ab = await bereich('belegkit', 'Abrechnung');
@@ -1518,7 +1521,8 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
   }
   function grund(a){
     if (a[0] === 'buero') return 'Bericht gespeichert' + (stand.berichtDatei ? ' (' + stand.berichtDatei + ')' : '') + ' – in der Projektzentrale ans Büro übergeben. Schon übergeben? Die Projektzentrale zeigt den Stand.';
-    if (a[0] === 'bericht') return BERICHTSART[stand.berichtArt] ? 'noch kein ' + BERICHTSART[stand.berichtArt] + ' gespeichert' : 'noch kein Bericht in „Mitteilungen“ – BerichtKit wählt die Berichtsart nach den Proben';
+    if (a[0] === 'bericht') return stand.berichtWeg ? BERICHTSART[stand.berichtArt] + ' „' + stand.berichtWeg + '“ ist nicht mehr in „Mitteilungen“ (gelöscht oder umbenannt?)'
+      : BERICHTSART[stand.berichtArt] ? 'noch kein ' + BERICHTSART[stand.berichtArt] + ' gespeichert' : 'noch kein Bericht in „Mitteilungen“ – BerichtKit wählt die Berichtsart nach den Proben';
     return GRUND[a[0]] || '';
   }
   function css(){
