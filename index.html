@@ -1479,8 +1479,14 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
       if (pl) for await (var g of pl.values()) if (g.kind === 'file' && /\.probenplan$/i.test(g.name) && !/ \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i.test(g.name)){ s.plan = true; break; }
     }catch(e6){}
     try{   // Bericht in „Mitteilungen“ (bleibt dort, auch in Spektron-Projekten): „1._Mitteilung_26.0528.docx“ (BerichtKit) wie „1__Mitteilung.docx“
-      var mi = await unterordner(proj, 'Mitteilungen'), da = {}, mitteilung = false;
-      if (mi) for await (var m of mi.values()) if (m.kind === 'file'){ da[nfc(m.name).toLowerCase()] = true; if (/^\d+[._\s]*Mitteilung(?![a-zäöüß]).*\.docx$/i.test(nfc(m.name))) mitteilung = true; }
+      var mi = await unterordner(proj, 'Mitteilungen'), da = {}, mitteilung = null;
+      if (mi) for await (var m of mi.values()) if (m.kind === 'file'){
+        da[nfc(m.name).toLowerCase()] = true;
+        if (/^\d+[._\s]*Mitteilung(?![a-zäöüß]).*\.docx$/i.test(nfc(m.name))){   // neueste Mitteilung merken (für „Ans Büro übergeben“ ohne _BerichtKit.json)
+          var mt = 0; try{ mt = (await m.getFile()).lastModified; }catch(eM){}
+          if (!mitteilung || mt > mitteilung.t) mitteilung = { name: m.name, t: mt };
+        }
+      }
       var bj = await berichtDatei(proj, mi), art = gemerkteArt(bj);
       s.berichtArt = art;
       if (art){   // Haken nur für einen gespeicherten Bericht der gemerkten Art, dessen Datei noch da ist
@@ -1488,7 +1494,7 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
         var gs = gb.filter(function(b){ return da[nfc(b.datei).toLowerCase()]; });
         if (gs.length){ s.bericht = true; s.berichtDatei = gs[gs.length - 1].datei; }
         else if (gb.length) s.berichtWeg = gb[gb.length - 1].datei;   // gespeichert, aber die Datei ist nicht mehr da
-      } else if (!bj) s.bericht = mitteilung;   // ohne _BerichtKit.json: wie v1 nach dem Dateinamen
+      } else if (!bj && mitteilung){ s.bericht = true; s.berichtDatei = mitteilung.name; }   // ohne _BerichtKit.json: wie v1 nach dem Dateinamen
     }catch(e9){}
     try{
       var ab = await bereich('belegkit', 'Abrechnung');
