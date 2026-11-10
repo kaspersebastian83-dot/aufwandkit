@@ -162,7 +162,11 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     // _Projekt.json: früherer Ort ist der Projektordner selbst
     const q = baue('26.0605 Musterweg Testort Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}' });
     t = S.zweiOrteText((await S.zweiOrte(q, ['projekt']))[0]);
-    assert.match(t, /Es gilt „_Spektron\/_Projekt\.json“, „_Spektron\/_Projekt_Sicherungen\/“/); assert.match(t, /Nicht verwendet: „_Projekt\.json“/); assert.match(t, /im Projektordner/);
+    assert.match(t, /Es gilt „_Spektron\/_Projekt\.json“ und 1 weitere\./); assert.match(t, /Nicht verwendet: „_Projekt\.json“/); assert.match(t, /im Projektordner/);
+    // gleichnamige Datei wird genannt, auch wenn daneben eine neuere liegt (z. B. Speicherkandidat in PlanKit)
+    const k = baue('26.0608 Z Ric', { '_Spektron/PlanKit/Probenplan a (Speicherkandidat x).probenplan': '{}', '_Spektron/PlanKit/Probenplan a.probenplan': '{}', 'Pläne/Probenplan a.probenplan': '{}' });
+    t = S.zweiOrteText((await S.zweiOrte(k, ['plankit']))[0]);
+    assert.match(t, /Es gilt „_Spektron\/PlanKit\/Probenplan a\.probenplan“ und 1 weitere\. Nicht verwendet: „Pläne\/Probenplan a\.probenplan“\./);
     // unterbrochener Umzug: früherer Ort gilt, Zeile sagt das
     const u = baue('26.0606 X Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { projekt: 'x' } }) });
     t = S.zweiOrteText((await S.zweiOrte(u, ['projekt']))[0]); assert.match(t, /unterbrochen/); assert.match(t, /Es gilt noch „_Projekt\.json“/);

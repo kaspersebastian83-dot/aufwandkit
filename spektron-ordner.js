@@ -213,20 +213,23 @@ async function zweiOrte(projektDir, bereiche){
   }
   return aus;
 }
-function dateienText(pfad, liste){
+/* Je Seite eine Datei nennen (die mit gleichem Namen wie auf der anderen Seite, sonst die neueste), Rest als „und n weitere“. */
+function dateienText(pfad, liste, bevorzugt){
   const pf = n => '„' + (pfad ? pfad + '/' : '') + n + '“';
-  const teile = liste.slice(0, 2).map(e => e.ordner ? pf(e.name + '/') : pf(e.name) + (e.zeit ? ' (' + datumText(e.zeit) + ')' : ''));
-  if (liste.length > 2) teile.push('und ' + (liste.length - 2) + ' weitere');
-  return teile.join(', ');
+  const haupt = (bevorzugt && liste.find(e => gleich(e.name, bevorzugt))) || liste[0];
+  if (!haupt) return '';
+  const t = haupt.ordner ? pf(haupt.name + '/') : pf(haupt.name) + (haupt.zeit ? ' (' + datumText(haupt.zeit) + ')' : '');
+  return liste.length > 1 ? t + ' und ' + (liste.length - 1) + ' weitere' : t;
 }
 /** Eine Zeile Klartext zu einem Eintrag aus zweiOrte() – „du“, ohne Fachwörter. optionen.projektzentrale: ohne den
     Verweis auf die Projektzentrale (dort steht das Weitere direkt darunter). */
 function zweiOrteText(e, optionen){
   const pz = !(optionen && optionen.projektzentrale);
   const altOrt = e.altPfad ? 'in „' + e.altPfad + '“' : 'im Projektordner';
+  const a = e.alt[0] ? e.alt[0].name : '', altText = dateienText(e.altPfad, e.alt), neuText = dateienText(e.neuPfad, e.neu, a);
   if (e.wo === 'alt') return '⚠ ' + e.app + ': Dateien an zwei Orten – der Umzug in „' + ORDNER + '“ wurde unterbrochen. Es gilt noch ' +
-    dateienText(e.altPfad, e.alt) + '. Nicht verwendet: ' + dateienText(e.neuPfad, e.neu) + '.' + (pz ? ' Bitte in der Projektzentrale „Umzug erneut ausführen“.' : '');
-  return '⚠ ' + e.app + ': Dateien an zwei Orten. Es gilt ' + dateienText(e.neuPfad, e.neu) + '. Nicht verwendet: ' + dateienText(e.altPfad, e.alt) + '.' +
+    altText + '. Nicht verwendet: ' + neuText + '.' + (pz ? ' Bitte in der Projektzentrale „Umzug erneut ausführen“.' : '');
+  return '⚠ ' + e.app + ': Dateien an zwei Orten. Es gilt ' + neuText + '. Nicht verwendet: ' + altText + '.' +
     (e.altNeuer ? ' Die Datei ' + altOrt + ' ist neuer – vielleicht hat eine ältere App-Fassung dort gespeichert. Schließ alle Spektron-Tabs auf allen PCs und öffne sie neu.' : '') +
     (pz ? ' Gelöscht wird nichts – in der Projektzentrale steht, was mit der Datei ' + altOrt + ' zu tun ist.' : '');
 }
