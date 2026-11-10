@@ -62,6 +62,7 @@ const oder = (...regeln) => (name, art) => regeln.some(r => r(name, art));
 /* Bereiche: alt = Pfad ab Projektordner, neu = Pfad ab _Spektron, passt(name, art) = gehört der Eintrag dazu,
    haupt(name, art) = die Datei, mit der die App arbeitet (Sicherungen, Vorher-Kopien und leere Ordner zählen nicht) –
    nur sie lässt den neuen Ort gegen Einträge am früheren Ort gewinnen (ohne haupt: wie passt). */
+const BEIWERK = /^(thumbs\.db|desktop\.ini|\.ds_store)$|\.crswap$/i;   // Windows/Chrome-Beiwerk – wie im Umzug: zählt nie als App-Datei
 const PLAN_NEBEN = / \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i;   // wie PlanKits Leiste
 const BEREICHE = Object.freeze({
   projekt:            Object.freeze({ app: 'Projektzentrale, FotoKit', alt: [], neu: [], passt: oder(datei('_Projekt.json'), ordner('_Projekt_Sicherungen')), haupt: datei('_Projekt.json') }),
@@ -74,7 +75,7 @@ const BEREICHE = Object.freeze({
   // nur die Dateien, die BelegKit selbst schreibt (dieselben Muster wie BelegKits Leser): Zeiten je Person, Berichtsangaben, Stände – andere JSON bleiben
   belegkit:           Object.freeze({ app: 'BelegKit', alt: ['Abrechnung'], neu: ['BelegKit'], passt: oder(muster(/^Aufwand_[A-Za-zÄÖÜäöü]{1,6}\.json$/), datei('_Abrechnung.json'), muster(/^.+_Aufwand_\d{4}-\d{2}-\d{2}(?:_\d+)?\.json$/i), ordner('_BelegKit_Sicherungen')),
     haupt: oder(muster(/^Aufwand_[A-Za-zÄÖÜäöü]{1,6}\.json$/), datei('_Abrechnung.json'), muster(/^.+_Aufwand_\d{4}-\d{2}-\d{2}(?:_\d+)?\.json$/i)) }),
-  buero:              Object.freeze({ app: 'BüroKit, Projektzentrale', alt: ['_Buero'], neu: ['Buero'], passt: () => true }),
+  buero:              Object.freeze({ app: 'BüroKit, Projektzentrale', alt: ['_Buero'], neu: ['Buero'], passt: name => !BEIWERK.test(nfc(name)) }),
   anlagenProtokoll:   Object.freeze({ app: 'Projektzentrale, PlanKit', alt: ['Mitteilungen'], neu: ['Protokolle'], passt: datei('_Anlagen-Protokoll.txt') }),
   berichtkit:         Object.freeze({ app: 'BerichtKit', alt: ['Mitteilungen'], neu: ['BerichtKit'], passt: datei('_BerichtKit.json') })
 });
@@ -120,9 +121,9 @@ async function hauptDa(dir, b){
   if (!auflistbar(dir)) return false;
   const h = b.haupt || b.passt;
   for await (const x of dir.values()){
-    if (!h(x.name, x.kind)) continue;
+    if (BEIWERK.test(nfc(x.name)) || !h(x.name, x.kind)) continue;
     try{
-      if (x.kind === 'directory'){ const d = await dir.getDirectoryHandle(x.name); if (auflistbar(d)) for await (const _ of d.values()) return true; }
+      if (x.kind === 'directory'){ const d = await dir.getDirectoryHandle(x.name); if (auflistbar(d)) for await (const y of d.values()) if (!BEIWERK.test(nfc(y.name))) return true; }
       else if ((await (await dir.getFileHandle(x.name)).getFile()).size > 0) return true;
     }catch(e){}
   }
