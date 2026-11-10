@@ -156,6 +156,9 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/b.json': 'b' }, 'buero'), 'neu');
     assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/Thumbs.db': 'x', '_Spektron/Buero/desktop.ini': 'x' }, 'buero'), 'alt', 'Windows-Beiwerk zählt nicht (Codex)');
     assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/Thumbs.db': 'x' }, 'buero'), 'alt', 'Ordner nur mit Beiwerk = leer');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/0f0e-leer/': null }, 'buero'), 'alt', 'verschachtelt leerer Ordner zählt nicht (Codex)');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/0f0e/auftrag.json': '{}' }, 'buero'), 'neu', 'verschachtelt mit Datei');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/0f0e/leer.json': '' }, 'buero'), 'alt', 'verschachtelt nur leere Datei');
     // vermerkter Umzug: neuer Ort, auch wenn dort nur eine Sicherung liegt (wie bisher)
     assert.equal(await t({ '_Projekt.json': 'a', '_Spektron/_Projekt_Sicherungen/s.json': 's', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { projekt: {} } }) }, 'projekt'), 'neu');
     // ohne Einträge am früheren Ort: neuer Ort wie bisher, auch nur mit Sicherung

@@ -115,16 +115,28 @@ async function passende(dir, b){
   if (auflistbar(dir)) for await (const h of dir.values()) if (b.passt(h.name, h.kind)) r.push({ name: h.name, art: h.kind });
   return r;
 }
-/** Liegt am Ort die Hauptdatei des Bereichs? Leere Dateien (0 Byte) und leere Ordner zählen nicht – so bleibt ein
-    abgebrochenes Kopieren zurück, und das ist kein Ersatz für die Dateien am früheren Ort. */
+/** Liegt am Ort die Hauptdatei des Bereichs? Leere Dateien (0 Byte), leere Ordner (auch verschachtelt) und Windows-Beiwerk
+    zählen nicht – so bleibt ein abgebrochenes Kopieren zurück, und das ist kein Ersatz für die Dateien am früheren Ort. */
+async function dateiMitInhalt(fh){ try{ return (await fh.getFile()).size > 0; }catch(e){ return false; } }
+async function ordnerMitInhalt(d, tiefe){
+  if (!auflistbar(d) || tiefe > 8) return false;
+  for await (const y of d.values()){
+    if (BEIWERK.test(nfc(y.name))) continue;
+    try{
+      if (y.kind === 'directory'){ if (await ordnerMitInhalt(await d.getDirectoryHandle(y.name), tiefe + 1)) return true; }
+      else if (await dateiMitInhalt(await d.getFileHandle(y.name))) return true;
+    }catch(e){}
+  }
+  return false;
+}
 async function hauptDa(dir, b){
   if (!auflistbar(dir)) return false;
   const h = b.haupt || b.passt;
   for await (const x of dir.values()){
     if (BEIWERK.test(nfc(x.name)) || !h(x.name, x.kind)) continue;
     try{
-      if (x.kind === 'directory'){ const d = await dir.getDirectoryHandle(x.name); if (auflistbar(d)) for await (const y of d.values()) if (!BEIWERK.test(nfc(y.name))) return true; }
-      else if ((await (await dir.getFileHandle(x.name)).getFile()).size > 0) return true;
+      if (x.kind === 'directory'){ if (await ordnerMitInhalt(await dir.getDirectoryHandle(x.name), 1)) return true; }
+      else if (await dateiMitInhalt(await dir.getFileHandle(x.name))) return true;
     }catch(e){}
   }
   return false;
