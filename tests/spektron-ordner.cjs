@@ -122,15 +122,52 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     const o = await S.ort(p, 'plankit'); assert.equal(o.wo, 'neu'); assert.equal(o.konflikt, false);
   });
 
-  await ok('An beiden Orten: ohne Umzugsvermerk früherer Ort, mit Vermerk neuer Ort – immer als Konflikt gemeldet', async () => {
+  await ok('An beiden Orten: der neue Ort gilt (K1) – immer als Konflikt gemeldet; nur ein laufender Umzug lässt den früheren gelten', async () => {
     const zwei = vermerk => baue('26.0563 Köln Ste', Object.assign({ 'Laborergebnisse/_Ergebnisse.json': 'alt', '_Spektron/ResultKit/_Ergebnisse.json': 'neu' },
       vermerk ? { '_Spektron/_Umzug.json': vermerk } : {}));
-    let o = await S.ort(zwei(), 'resultkit'); assert.equal(o.wo, 'alt'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, false);
+    let o = await S.ort(zwei(), 'resultkit'); assert.equal(o.wo, 'neu', 'ohne Vermerk: eine Datei am früheren Ort schaltet nicht zurück'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, false);
+    assert.equal(o.dir.name, 'ResultKit');
     o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { resultkit: { am: '2026-10-28' } } })), 'resultkit');
     assert.equal(o.wo, 'neu'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, true, 'Nachzügler am früheren Ort erkennbar');
     o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { plankit: {} } })), 'resultkit');
-    assert.equal(o.wo, 'alt', 'Vermerk gilt nur für den genannten Bereich');
-    o = await S.ort(zwei('kaputt{'), 'resultkit'); assert.equal(o.wo, 'alt', 'unlesbarer Vermerk = kein Vermerk');
+    assert.equal(o.wo, 'neu', 'Vermerk eines anderen Bereichs ändert nichts');
+    o = await S.ort(zwei('kaputt{'), 'resultkit'); assert.equal(o.wo, 'neu', 'unlesbarer Vermerk = kein Vermerk');
+    // Umzug dieses Bereichs läuft / wurde unterbrochen: die Originale gelten, die Kopien können unvollständig sein
+    o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { resultkit: '2026-11-10' } })), 'resultkit');
+    assert.equal(o.wo, 'alt'); assert.equal(o.unterbrochen, true); assert.equal(o.konflikt, true); assert.equal(o.dir.name, 'Laborergebnisse');
+    o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { plankit: '2026-11-10' } })), 'resultkit');
+    assert.equal(o.wo, 'neu', '„laeuft“ gilt nur für den genannten Bereich');
+    o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { resultkit: {} }, laeuft: { resultkit: 'x' } })), 'resultkit');
+    assert.equal(o.wo, 'neu', 'vermerkt geht vor „laeuft“');
+    const nurNeu = baue('26.0563 Köln Ste', { '_Spektron/ResultKit/_Ergebnisse.json': 'neu', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { resultkit: 'x' } }) });
+    assert.equal((await S.ort(nurNeu, 'resultkit')).wo, 'neu', 'ohne Originale am früheren Ort: neuer Ort');
+  });
+
+  await ok('Eine sichtbare Zeile: zweiOrte() nennt beide Dateien mit Datum, zweiOrteText() sagt, welche gilt', async () => {
+    const p = baue('26.0604 Musterstr. Testort Dr. Ka', { '_Spektron/LabelKit/26.0604_Daten.json': '{"neu":1}', 'Laboraufträge/26.0604_Daten.json': '{"alt":1}', 'Laboraufträge/x.xls': 'x', '_Spektron/PlanKit/a.probenplan': '{}' });
+    const lk = p.k.get('_Spektron').k.get('LabelKit').k.get('26.0604_Daten.json'), la = p.k.get('Laboraufträge').k.get('26.0604_Daten.json');
+    const zeit = (d, ms) => { const g = d.getFile.bind(d); d.getFile = async () => Object.assign(await g(), { lastModified: ms }); };
+    zeit(lk, new Date(2026, 10, 9, 14, 32).getTime()); zeit(la, new Date(2026, 10, 8, 10, 5).getTime());
+    const z = await S.zweiOrte(p, ['labelkit', 'plankit', 'resultkit']);
+    assert.equal(z.length, 1); assert.equal(z[0].bereich, 'labelkit'); assert.equal(z[0].wo, 'neu'); assert.equal(z[0].altNeuer, false);
+    assert.deepEqual(z[0].neu.map(e => e.name), ['26.0604_Daten.json']); assert.deepEqual(z[0].alt.map(e => e.name), ['26.0604_Daten.json'], 'nur App-Dateien, keine XLS');
+    let t = S.zweiOrteText(z[0]);
+    assert.match(t, /LabelKit: Dateien an zwei Orten/);
+    assert.match(t, /Es gilt „_Spektron\/LabelKit\/26\.0604_Daten\.json“ \(09\.11\.2026, 14:32\)/);
+    assert.match(t, /Nicht verwendet: „Laboraufträge\/26\.0604_Daten\.json“ \(08\.11\.2026, 10:05\)/);
+    assert.match(t, /Gelöscht wird nichts/); assert.doesNotMatch(t, /ist neuer/);
+    zeit(la, new Date(2026, 10, 10, 9, 0).getTime());   // alte App-Fassung hat am früheren Ort gespeichert
+    t = S.zweiOrteText((await S.zweiOrte(p, ['labelkit']))[0]);
+    assert.match(t, /Die Datei in „Laboraufträge“ ist neuer/); assert.match(t, /Schließ alle Spektron-Tabs/);
+    // _Projekt.json: früherer Ort ist der Projektordner selbst
+    const q = baue('26.0605 Musterweg Testort Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}' });
+    t = S.zweiOrteText((await S.zweiOrte(q, ['projekt']))[0]);
+    assert.match(t, /Es gilt „_Spektron\/_Projekt\.json“, „_Spektron\/_Projekt_Sicherungen\/“/); assert.match(t, /Nicht verwendet: „_Projekt\.json“/); assert.match(t, /im Projektordner/);
+    // unterbrochener Umzug: früherer Ort gilt, Zeile sagt das
+    const u = baue('26.0606 X Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { projekt: 'x' } }) });
+    t = S.zweiOrteText((await S.zweiOrte(u, ['projekt']))[0]); assert.match(t, /unterbrochen/); assert.match(t, /Es gilt noch „_Projekt\.json“/);
+    assert.deepEqual(await S.zweiOrte(baue('26.0400 Köln Nad', { 'Laboraufträge/a_Daten.json': '{}' })), [], 'Vor Spektron: nie');
+    assert.deepEqual(await S.zweiOrte(baue('26.0607 Y Nad', { '_Spektron/LabelKit/a_Daten.json': '{}' })), [], 'nur ein Ort: keine Zeile');
   });
 
   await ok('Ordnernamen ohne Groß-/Kleinschreibung und Unicode-Form (Pläne als NFD)', async () => {
