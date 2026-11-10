@@ -114,15 +114,17 @@ async function passende(dir, b){
   if (auflistbar(dir)) for await (const h of dir.values()) if (b.passt(h.name, h.kind)) r.push({ name: h.name, art: h.kind });
   return r;
 }
-/** Liegt am Ort die Hauptdatei des Bereichs? Ein Ordner zählt nur, wenn er nicht leer ist (ein leer gebliebener
-    Ordner nach einem abgebrochenen Kopieren ist kein Ersatz für die Dateien am früheren Ort). */
+/** Liegt am Ort die Hauptdatei des Bereichs? Leere Dateien (0 Byte) und leere Ordner zählen nicht – so bleibt ein
+    abgebrochenes Kopieren zurück, und das ist kein Ersatz für die Dateien am früheren Ort. */
 async function hauptDa(dir, b){
   if (!auflistbar(dir)) return false;
   const h = b.haupt || b.passt;
   for await (const x of dir.values()){
     if (!h(x.name, x.kind)) continue;
-    if (x.kind !== 'directory') return true;
-    try{ const d = await dir.getDirectoryHandle(x.name); if (auflistbar(d)) for await (const _ of d.values()) return true; }catch(e){}
+    try{
+      if (x.kind === 'directory'){ const d = await dir.getDirectoryHandle(x.name); if (auflistbar(d)) for await (const _ of d.values()) return true; }
+      else if ((await (await dir.getFileHandle(x.name)).getFile()).size > 0) return true;
+    }catch(e){}
   }
   return false;
 }
@@ -208,10 +210,10 @@ async function eintraegeMitDatum(dir, b){
     if (!b.passt(h.name, h.kind)) continue;
     let zeit = 0;
     if (h.kind === 'file'){ try{ zeit = (await (await dir.getFileHandle(h.name)).getFile()).lastModified || 0; }catch(e){} }
-    r.push({ name: h.name, ordner: h.kind === 'directory', zeit });
+    r.push({ name: h.name, ordner: h.kind === 'directory', zeit, haupt: !b.haupt || b.haupt(h.name, h.kind) });
   }
-  // Dateien vor Ordnern, neueste zuerst
-  return r.sort((a, c) => (a.ordner - c.ordner) || (c.zeit - a.zeit) || a.name.localeCompare(c.name));
+  // Hauptdateien zuerst (die Datei, mit der die App arbeitet – nicht eine Sicherung), dann Dateien vor Ordnern, neueste zuerst
+  return r.sort((a, c) => (c.haupt - a.haupt) || (a.ordner - c.ordner) || (c.zeit - a.zeit) || a.name.localeCompare(c.name));
 }
 /** Bereiche mit Dateien an beiden Orten (nur lesen). bereiche: Liste der Bereich-IDs, die die App nutzt (Standard: alle).
     → [{ bereich, app, wo, umgezogen, unterbrochen, neuPfad, altPfad, neu:[{name,ordner,zeit}], alt:[…], altNeuer }] */
@@ -225,7 +227,8 @@ async function zweiOrte(projektDir, bereiche){
     if (!o.konflikt) continue;
     const neu = await eintraegeMitDatum(sp ? await unter(sp, b.neu, false) : null, b);
     const alt = await eintraegeMitDatum(await unter(projektDir, b.alt, false), b);
-    const max = l => l.reduce((m, e) => Math.max(m, e.zeit || 0), 0);
+    // „neuer“ nur nach den Hauptdateien beurteilen (eine neuere Sicherung sagt nichts über die Datei, die die App liest)
+    const max = l => { const h = l.filter(e => e.haupt && !e.ordner); return (h.length ? h : l).reduce((m, e) => Math.max(m, e.zeit || 0), 0); };
     aus.push({ bereich: id, app: b.app, wo: o.wo, umgezogen: o.umgezogen, unterbrochen: o.unterbrochen,
       neuPfad: [ORDNER].concat(b.neu).join('/'), altPfad: b.alt.join('/'), neu, alt, altNeuer: max(alt) > max(neu) });
   }
@@ -245,8 +248,11 @@ function zweiOrteText(e, optionen){
   const pz = !(optionen && optionen.projektzentrale);
   const altOrt = e.altPfad ? 'in „' + e.altPfad + '“' : 'im Projektordner';
   const a = e.alt[0] ? e.alt[0].name : '', altText = dateienText(e.altPfad, e.alt), neuText = dateienText(e.neuPfad, e.neu, a);
-  if (e.wo === 'alt') return '⚠ ' + e.app + ': Dateien an zwei Orten – der Umzug in „' + ORDNER + '“ wurde unterbrochen. Es gilt noch ' +
+  if (e.wo === 'alt' && e.unterbrochen) return '⚠ ' + e.app + ': Dateien an zwei Orten – der Umzug in „' + ORDNER + '“ wurde unterbrochen. Es gilt noch ' +
     altText + '. Nicht verwendet: ' + neuText + '.' + (pz ? ' Bitte in der Projektzentrale „Umzug erneut ausführen“.' : '');
+  if (e.wo === 'alt') return '⚠ ' + e.app + ': Dateien an zwei Orten. Es gilt noch ' + altText + ' – in „' + ORDNER + '“ liegt nur ' +
+    'eine Sicherung, eine leere Datei oder ein leerer Ordner, nicht die Datei selbst (vermutlich ein unvollständiger Umzug). Nicht verwendet: ' + neuText + '.' +
+    (pz ? ' Bitte in der Projektzentrale „Umzug erneut ausführen“.' : '');
   return '⚠ ' + e.app + ': Dateien an zwei Orten. Es gilt ' + neuText + '. Nicht verwendet: ' + altText + '.' +
     (e.altNeuer ? ' Die Datei ' + altOrt + ' ist neuer – vielleicht hat eine ältere App-Fassung dort gespeichert. Schließ alle Spektron-Tabs auf allen PCs und öffne sie neu.' : '') +
     (pz ? ' Gelöscht wird nichts – in der Projektzentrale steht, was mit der Datei ' + altOrt + ' zu tun ist.' : '');

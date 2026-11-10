@@ -160,6 +160,28 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.equal(await t({ '_Spektron/_Projekt_Sicherungen/s.json': 's' }, 'projekt'), 'neu');
   });
 
+  await ok('Codex 2. Runde: leere Hauptdatei zählt nicht; Zeile nennt und datiert die Hauptdatei, nicht die Sicherung', async () => {
+    const zeit = (wurzel, pfad, ms) => { let d = wurzel; const t = pfad.split('/'); for (const x of t.slice(0, -1)) d = d.k.get(x); const f = d.k.get(t[t.length - 1]), g = f.getFile.bind(f); f.getFile = async () => Object.assign(await g(), { lastModified: ms }); };
+    // leere _Ergebnisse.json in _Spektron (abgebrochenes Kopieren) → früherer Ort
+    const leer = baue('26.0612 Leerweg Testort Ric', { 'Laborergebnisse/_Ergebnisse.json': '{"e":1}', '_Spektron/ResultKit/_Ergebnisse.json': '' });
+    assert.equal((await S.ort(leer, 'resultkit')).wo, 'alt', 'leere Hauptdatei zählt nicht');
+    // nur Sicherung in _Spektron, kein „laeuft“: früherer Ort, Zeile ohne „wurde unterbrochen“
+    const sich = baue('26.0613 Sicherweg Testort Ric', { 'Laborergebnisse/_Ergebnisse.json': '{"e":1}', '_Spektron/ResultKit/_Ergebnisse.vorher.json': '{"e":0}' });
+    let t = S.zweiOrteText((await S.zweiOrte(sich, ['resultkit']))[0]);
+    assert.doesNotMatch(t, /wurde unterbrochen/); assert.match(t, /Es gilt noch „Laborergebnisse\/_Ergebnisse\.json“ – in „_Spektron“ liegt nur eine Sicherung/);
+    // beide Seiten mit Haupt- und Sicherungsdatei; die neueste Datei überhaupt ist eine Sicherung in _Spektron
+    const p = baue('26.0614 Beideweg Testort Ric', { 'Laborergebnisse/_Ergebnisse.json': 'A', 'Laborergebnisse/_Ergebnisse.vorher.json': 'Av',
+      '_Spektron/ResultKit/_Ergebnisse.json': 'N', '_Spektron/ResultKit/_Ergebnisse.vorher.json': 'Nv' });
+    zeit(p, '_Spektron/ResultKit/_Ergebnisse.json', new Date(2026, 10, 5, 10, 0).getTime());
+    zeit(p, 'Laborergebnisse/_Ergebnisse.json', new Date(2026, 10, 7, 10, 0).getTime());
+    zeit(p, 'Laborergebnisse/_Ergebnisse.vorher.json', new Date(2026, 10, 8, 10, 0).getTime());
+    zeit(p, '_Spektron/ResultKit/_Ergebnisse.vorher.json', new Date(2026, 10, 9, 10, 0).getTime());
+    const z = (await S.zweiOrte(p, ['resultkit']))[0]; t = S.zweiOrteText(z);
+    assert.equal(z.altNeuer, true, 'nach den Hauptdateien: die am früheren Ort ist neuer');
+    assert.match(t, /Es gilt „_Spektron\/ResultKit\/_Ergebnisse\.json“ \(05\.11\.2026, 10:00\) und 1 weitere\. Nicht verwendet: „Laborergebnisse\/_Ergebnisse\.json“ \(07\.11\.2026, 10:00\) und 1 weitere\./);
+    assert.match(t, /Die Datei in „Laborergebnisse“ ist neuer/);
+  });
+
   await ok('Eine sichtbare Zeile: zweiOrte() nennt beide Dateien mit Datum, zweiOrteText() sagt, welche gilt', async () => {
     const p = baue('26.0604 Musterstr. Testort Dr. Ka', { '_Spektron/LabelKit/26.0604_Daten.json': '{"neu":1}', 'Laboraufträge/26.0604_Daten.json': '{"alt":1}', 'Laboraufträge/x.xls': 'x', '_Spektron/PlanKit/a.probenplan': '{}' });
     const lk = p.k.get('_Spektron').k.get('LabelKit').k.get('26.0604_Daten.json'), la = p.k.get('Laboraufträge').k.get('26.0604_Daten.json');
