@@ -60,10 +60,23 @@ const muster = re => (name, art) => art === 'file' && re.test(nfc(name));
 const oder = (...regeln) => (name, art) => regeln.some(r => r(name, art));
 
 /* Bereiche: alt = Pfad ab Projektordner, neu = Pfad ab _Spektron, passt(name, art) = gehört der Eintrag dazu,
-   haupt(name, art) = die Datei, mit der die App arbeitet (Sicherungen, Vorher-Kopien und leere Ordner zählen nicht) –
-   nur sie lässt den neuen Ort gegen Einträge am früheren Ort gewinnen (ohne haupt: wie passt). */
+   haupt(name, art, k) = die Datei, mit der die App arbeitet (Sicherungen, Vorher-Kopien und leere Ordner zählen nicht) –
+   nur sie lässt den neuen Ort gegen Einträge am früheren Ort gewinnen (ohne haupt: wie passt). k = { nr } aus dem
+   Projektordnernamen (PlanKit: die Hauptdatei heißt „Probenplan <Projektnummer> ….probenplan“). */
 const BEIWERK = /^(thumbs\.db|desktop\.ini|\.ds_store)$|\.crswap$/i;   // Windows/Chrome-Beiwerk – wie im Umzug: zählt nie als App-Datei
 const PLAN_NEBEN = / \((vorher|Wiederherstellung|Speicherkandidat|Kopie)\b[^)]*\)\.probenplan$/i;   // wie PlanKits Leiste
+const NR = /^(\d{2}\.\d{2,6})(?:[\s_-]|$)/;                                    // Projektnummer am Anfang des Ordnernamens
+const PLAN_NR = /^Probenplan (\d{2}\.\d{2,6})(?:[\s_-]|\.probenplan$)/i;          // „Probenplan 26.0606 ….probenplan“
+const projektNr = name => (NR.exec(nfc(name).trim()) || [])[1] || '';
+/* PlanKit-Hauptdatei: keine Sicherung UND – wenn der Ordnername eine Projektnummer hat – „Probenplan <diese Nummer> …“.
+   Die Nummer bleibt bei einem umbenannten Ordner (Dr.Ka → Dr. Ka) gleich; Notfallkopien („PlanKit Notfallkopie …“) und
+   Downloads („<Ordnername>.probenplan“) zählen so nie. Ohne lesbare Nummer: jede .probenplan ohne Sicherungs-Zusatz. */
+function planHaupt(name, art, k){
+  const n = nfc(name);
+  if (art !== 'file' || !/\.probenplan$/i.test(n) || PLAN_NEBEN.test(n)) return false;
+  if (!k || !k.nr) return true;
+  return (PLAN_NR.exec(n) || [])[1] === k.nr;
+}
 const BEREICHE = Object.freeze({
   projekt:            Object.freeze({ app: 'Projektzentrale, FotoKit', alt: [], neu: [], passt: oder(datei('_Projekt.json'), ordner('_Projekt_Sicherungen')), haupt: datei('_Projekt.json') }),
   fotokit:            Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit'], passt: oder(datei('_Bildumbenenner.json'), ordner('_FotoKit_Fassungen')), haupt: datei('_Bildumbenenner.json') }),
@@ -71,7 +84,7 @@ const BEREICHE = Object.freeze({
   labelkit:           Object.freeze({ app: 'LabelKit', alt: ['Laboraufträge'], neu: ['LabelKit'], passt: muster(/_Daten\.json$/i) }),
   labelkitAblage:     Object.freeze({ app: 'LabelKit', alt: ['Feldprotokolle'], neu: ['LabelKit'], passt: datei('_Ablage-Protokoll.txt') }),
   resultkit:          Object.freeze({ app: 'ResultKit', alt: ['Laborergebnisse'], neu: ['ResultKit'], passt: datei('_Ergebnisse.json', '_Ergebnisse.vorher.json'), haupt: datei('_Ergebnisse.json') }),
-  plankit:            Object.freeze({ app: 'PlanKit', alt: ['Pläne'], neu: ['PlanKit'], passt: muster(/\.probenplan$/i), haupt: (name, art) => art === 'file' && /\.probenplan$/i.test(nfc(name)) && !PLAN_NEBEN.test(nfc(name)) }),
+  plankit:            Object.freeze({ app: 'PlanKit', alt: ['Pläne'], neu: ['PlanKit'], passt: muster(/\.probenplan$/i), haupt: planHaupt }),
   // nur die Dateien, die BelegKit selbst schreibt (dieselben Muster wie BelegKits Leser): Zeiten je Person, Berichtsangaben, Stände – andere JSON bleiben
   belegkit:           Object.freeze({ app: 'BelegKit', alt: ['Abrechnung'], neu: ['BelegKit'], passt: oder(muster(/^Aufwand_[A-Za-zÄÖÜäöü]{1,6}\.json$/), datei('_Abrechnung.json'), muster(/^.+_Aufwand_\d{4}-\d{2}-\d{2}(?:_\d+)?\.json$/i), ordner('_BelegKit_Sicherungen')),
     haupt: oder(muster(/^Aufwand_[A-Za-zÄÖÜäöü]{1,6}\.json$/), datei('_Abrechnung.json'), muster(/^.+_Aufwand_\d{4}-\d{2}-\d{2}(?:_\d+)?\.json$/i)) }),
@@ -129,9 +142,9 @@ async function ordnerMitInhalt(d, tiefe){
   }
   return false;
 }
-async function hauptDa(dir, b){
+async function hauptDa(dir, b, k){
   if (!auflistbar(dir)) return false;
-  const h = b.haupt || b.passt;
+  const h = b.haupt ? (n, a) => b.haupt(n, a, k) : b.passt;
   for await (const x of dir.values()){
     if (BEIWERK.test(nfc(x.name)) || !h(x.name, x.kind)) continue;
     try{
@@ -204,7 +217,7 @@ async function ort(projektDir, bereich, optionen){
   const umgezogen = !!v.bereiche[bereich];
   const unterbrochen = !umgezogen && !!(v.laeuft && typeof v.laeuft === 'object' && v.laeuft[bereich]);
   if (neuHat && (!altHat || umgezogen)) return fertig('neu', neuDir, konflikt, umgezogen, false);
-  if (altHat && !unterbrochen && await hauptDa(neuDir, b)) return fertig('neu', neuDir, konflikt, umgezogen, false);   // K1
+  if (altHat && !unterbrochen && await hauptDa(neuDir, b, { nr: projektNr(projektDir.name) })) return fertig('neu', neuDir, konflikt, umgezogen, false);   // K1
   if (altHat) return fertig('alt', altDir, konflikt, umgezogen, unterbrochen);
   return (sp || UMSTELLUNG) ? fertig('neu', neuDir, false, umgezogen, false) : fertig('alt', altDir, false, umgezogen, false);
 }
@@ -216,14 +229,14 @@ function datumText(ms){
   const d = new Date(ms);
   return zwei(d.getDate()) + '.' + zwei(d.getMonth() + 1) + '.' + d.getFullYear() + ', ' + zwei(d.getHours()) + ':' + zwei(d.getMinutes());
 }
-async function eintraegeMitDatum(dir, b){
+async function eintraegeMitDatum(dir, b, k){
   const r = [];
   if (!auflistbar(dir)) return r;
   for await (const h of dir.values()){
     if (!b.passt(h.name, h.kind)) continue;
     let zeit = 0;
     if (h.kind === 'file'){ try{ zeit = (await (await dir.getFileHandle(h.name)).getFile()).lastModified || 0; }catch(e){} }
-    r.push({ name: h.name, ordner: h.kind === 'directory', zeit, haupt: !b.haupt || b.haupt(h.name, h.kind) });
+    r.push({ name: h.name, ordner: h.kind === 'directory', zeit, haupt: !b.haupt || b.haupt(h.name, h.kind, k) });
   }
   // Hauptdateien zuerst (die Datei, mit der die App arbeitet – nicht eine Sicherung), dann Dateien vor Ordnern, neueste zuerst
   return r.sort((a, c) => (c.haupt - a.haupt) || (a.ordner - c.ordner) || (c.zeit - a.zeit) || a.name.localeCompare(c.name));
@@ -238,8 +251,9 @@ async function zweiOrte(projektDir, bereiche){
     const b = BEREICHE[id]; if (!b) continue;
     const o = await ort(projektDir, id);
     if (!o.konflikt) continue;
-    const neu = await eintraegeMitDatum(sp ? await unter(sp, b.neu, false) : null, b);
-    const alt = await eintraegeMitDatum(await unter(projektDir, b.alt, false), b);
+    const k = { nr: projektNr(projektDir.name) };
+    const neu = await eintraegeMitDatum(sp ? await unter(sp, b.neu, false) : null, b, k);
+    const alt = await eintraegeMitDatum(await unter(projektDir, b.alt, false), b, k);
     // „neuer“ nur nach den Hauptdateien beurteilen (eine neuere Sicherung sagt nichts über die Datei, die die App liest)
     const max = l => { const h = l.filter(e => e.haupt && !e.ordner); return (h.length ? h : l).reduce((m, e) => Math.max(m, e.zeit || 0), 0); };
     aus.push({ bereich: id, app: b.app, wo: o.wo, umgezogen: o.umgezogen, unterbrochen: o.unterbrochen,

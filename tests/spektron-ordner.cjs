@@ -149,8 +149,9 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.equal(await t({ 'Laborergebnisse/_Ergebnisse.json': 'a', '_Spektron/ResultKit/_Ergebnisse.json': 'n' }, 'resultkit'), 'neu');
     assert.equal(await t({ '_Projekt.json': 'a', '_Spektron/_Projekt_Sicherungen/s.json': 's' }, 'projekt'), 'alt', 'nur _Projekt_Sicherungen');
     assert.equal(await t({ 'Fotos/_Bildumbenenner.json': 'a', '_Spektron/FotoKit/_FotoKit_Fassungen/k.json': 'k' }, 'fotokit'), 'alt', 'nur _FotoKit_Fassungen');
-    assert.equal(await t({ 'Pläne/Probenplan a.probenplan': 'a', '_Spektron/PlanKit/Probenplan a (Speicherkandidat x).probenplan': 'k' }, 'plankit'), 'alt', 'nur Speicherkandidat');
-    assert.equal(await t({ 'Pläne/Probenplan a Notfallkopie.probenplan': 'a', '_Spektron/PlanKit/Probenplan a.probenplan': 'n' }, 'plankit'), 'neu');
+    const PP = 'Probenplan 26.0603 Testweg Testort Ric';
+    assert.equal(await t({ [`Pläne/${PP}.probenplan`]: 'a', [`_Spektron/PlanKit/${PP} (Speicherkandidat x).probenplan`]: 'k' }, 'plankit'), 'alt', 'nur Speicherkandidat');
+    assert.equal(await t({ [`Pläne/PlanKit Notfallkopie 26.0603 Testweg Testort Ric 1.probenplan`]: 'a', [`_Spektron/PlanKit/${PP}.probenplan`]: 'n' }, 'plankit'), 'neu');
     assert.equal(await t({ 'Abrechnung/Aufwand_DRKA.json': 'a', '_Spektron/BelegKit/_BelegKit_Sicherungen/x.json': 's' }, 'belegkit'), 'alt', 'nur Sicherungsordner');
     assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/': null }, 'buero'), 'alt', 'leerer Ordner zählt nicht');
     assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/b.json': 'b' }, 'buero'), 'neu');
@@ -163,6 +164,26 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.equal(await t({ '_Projekt.json': 'a', '_Spektron/_Projekt_Sicherungen/s.json': 's', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { projekt: {} } }) }, 'projekt'), 'neu');
     // ohne Einträge am früheren Ort: neuer Ort wie bisher, auch nur mit Sicherung
     assert.equal(await t({ '_Spektron/_Projekt_Sicherungen/s.json': 's' }, 'projekt'), 'neu');
+  });
+
+  await ok('PlanKit-Hauptdatei: „Probenplan <Projektnummer> …“ ohne Sicherungs-Zusatz; ohne lesbare Nummer jede .probenplan ohne Zusatz', async () => {
+    const wo = async (ordner, dateien) => (await S.ort(baue(ordner, dateien), 'plankit')).wo;
+    const neuName = '26.0606 Probenallee Fiktiv Dr. Ka', altName = '26.0606 Probenallee Fiktiv Dr.Ka';
+    // umbenannter Ordner: Plan in _Spektron trägt den alten Namen, gleiche Nummer → zählt
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan ${altName}.probenplan`]: 'n' }), 'neu', 'umbenannter Ordner');
+    // Notfallkopie / Download / Plan eines anderen Projekts allein in _Spektron → früherer Ort (der echte Plan in „Pläne“)
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/PlanKit Notfallkopie ${neuName} 1731000000000.probenplan`]: 'n' }), 'alt', 'Notfallkopie zählt nicht');
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/${neuName}.probenplan`]: 'n' }), 'alt', 'Download „<Ordner>.probenplan“ zählt nicht');
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan 26.0999 Anderswo Ric.probenplan`]: 'n' }), 'alt', 'Plan eines anderen Projekts zählt nicht');
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan 26.06061 X.probenplan`]: 'n' }), 'alt', 'längere Nummer ist eine andere');
+    // Nummer am Ende ohne Ort: „Probenplan 26.0606.probenplan“ zählt
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan 26.0606.probenplan`]: 'n' }), 'neu');
+    // ohne lesbare Projektnummer im Ordnernamen (von Hand übernommen, _Spektron vorhanden): heutige Regel
+    assert.equal(await wo('Musterprojekt Halle', { '_Spektron/BITTE NICHT ANFASSEN.txt': 'x', 'Pläne/Probenplan Musterprojekt Halle.probenplan': 'a', '_Spektron/PlanKit/irgendein Plan.probenplan': 'n' }), 'neu', 'ohne Nummer: jede .probenplan ohne Zusatz');
+    assert.equal(await wo('Musterprojekt Halle', { '_Spektron/BITTE NICHT ANFASSEN.txt': 'x', 'Pläne/Probenplan Musterprojekt Halle.probenplan': 'a', '_Spektron/PlanKit/irgendein Plan (vorher 1).probenplan': 'n' }), 'alt', 'ohne Nummer: Sicherung zählt weiter nicht');
+    // die Zeile nennt die Hauptdatei
+    const p = baue(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan ${altName}.probenplan`]: 'n', [`_Spektron/PlanKit/PlanKit Notfallkopie ${neuName} 1.probenplan`]: 'x' });
+    assert.match(S.zweiOrteText((await S.zweiOrte(p, ['plankit']))[0]), /Es gilt „_Spektron\/PlanKit\/Probenplan 26\.0606 Probenallee Fiktiv Dr\.Ka\.probenplan“/);
   });
 
   await ok('Codex 2. Runde: leere Hauptdatei zählt nicht; Zeile nennt und datiert die Hauptdatei, nicht die Sicherung', async () => {
@@ -208,9 +229,9 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     t = S.zweiOrteText((await S.zweiOrte(q, ['projekt']))[0]);
     assert.match(t, /Es gilt „_Spektron\/_Projekt\.json“ und 1 weitere\./); assert.match(t, /Nicht verwendet: „_Projekt\.json“/); assert.match(t, /im Projektordner/);
     // gleichnamige Datei wird genannt, auch wenn daneben eine neuere liegt (z. B. Speicherkandidat in PlanKit)
-    const k = baue('26.0608 Z Ric', { '_Spektron/PlanKit/Probenplan a (Speicherkandidat x).probenplan': '{}', '_Spektron/PlanKit/Probenplan a.probenplan': '{}', 'Pläne/Probenplan a.probenplan': '{}' });
+    const k = baue('26.0608 Z Ric', { '_Spektron/PlanKit/Probenplan 26.0608 Z Ric (Speicherkandidat x).probenplan': '{}', '_Spektron/PlanKit/Probenplan 26.0608 Z Ric.probenplan': '{}', 'Pläne/Probenplan 26.0608 Z Ric.probenplan': '{}' });
     t = S.zweiOrteText((await S.zweiOrte(k, ['plankit']))[0]);
-    assert.match(t, /Es gilt „_Spektron\/PlanKit\/Probenplan a\.probenplan“ und 1 weitere\. Nicht verwendet: „Pläne\/Probenplan a\.probenplan“\./);
+    assert.match(t, /Es gilt „_Spektron\/PlanKit\/Probenplan 26\.0608 Z Ric\.probenplan“ und 1 weitere\. Nicht verwendet: „Pläne\/Probenplan 26\.0608 Z Ric\.probenplan“\./);
     // unterbrochener Umzug: früherer Ort gilt, Zeile sagt das
     const u = baue('26.0606 X Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { projekt: 'x' } }) });
     t = S.zweiOrteText((await S.zweiOrte(u, ['projekt']))[0]); assert.match(t, /unterbrochen/); assert.match(t, /Es gilt noch „_Projekt\.json“/);
