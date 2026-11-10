@@ -122,15 +122,140 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     const o = await S.ort(p, 'plankit'); assert.equal(o.wo, 'neu'); assert.equal(o.konflikt, false);
   });
 
-  await ok('An beiden Orten: ohne Umzugsvermerk früherer Ort, mit Vermerk neuer Ort – immer als Konflikt gemeldet', async () => {
+  await ok('An beiden Orten: der neue Ort gilt (K1) – immer als Konflikt gemeldet; nur ein laufender Umzug lässt den früheren gelten', async () => {
     const zwei = vermerk => baue('26.0563 Köln Ste', Object.assign({ 'Laborergebnisse/_Ergebnisse.json': 'alt', '_Spektron/ResultKit/_Ergebnisse.json': 'neu' },
       vermerk ? { '_Spektron/_Umzug.json': vermerk } : {}));
-    let o = await S.ort(zwei(), 'resultkit'); assert.equal(o.wo, 'alt'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, false);
+    let o = await S.ort(zwei(), 'resultkit'); assert.equal(o.wo, 'neu', 'ohne Vermerk: eine Datei am früheren Ort schaltet nicht zurück'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, false);
+    assert.equal(o.dir.name, 'ResultKit');
     o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { resultkit: { am: '2026-10-28' } } })), 'resultkit');
     assert.equal(o.wo, 'neu'); assert.equal(o.konflikt, true); assert.equal(o.umgezogen, true, 'Nachzügler am früheren Ort erkennbar');
     o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { plankit: {} } })), 'resultkit');
-    assert.equal(o.wo, 'alt', 'Vermerk gilt nur für den genannten Bereich');
-    o = await S.ort(zwei('kaputt{'), 'resultkit'); assert.equal(o.wo, 'alt', 'unlesbarer Vermerk = kein Vermerk');
+    assert.equal(o.wo, 'neu', 'Vermerk eines anderen Bereichs ändert nichts');
+    o = await S.ort(zwei('kaputt{'), 'resultkit'); assert.equal(o.wo, 'neu', 'unlesbarer Vermerk = kein Vermerk');
+    // Umzug dieses Bereichs läuft / wurde unterbrochen: die Originale gelten, die Kopien können unvollständig sein
+    o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { resultkit: '2026-11-10' } })), 'resultkit');
+    assert.equal(o.wo, 'alt'); assert.equal(o.unterbrochen, true); assert.equal(o.konflikt, true); assert.equal(o.dir.name, 'Laborergebnisse');
+    o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { plankit: '2026-11-10' } })), 'resultkit');
+    assert.equal(o.wo, 'neu', '„laeuft“ gilt nur für den genannten Bereich');
+    o = await S.ort(zwei(JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { resultkit: {} }, laeuft: { resultkit: 'x' } })), 'resultkit');
+    assert.equal(o.wo, 'neu', 'vermerkt geht vor „laeuft“');
+    const nurNeu = baue('26.0563 Köln Ste', { '_Spektron/ResultKit/_Ergebnisse.json': 'neu', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { resultkit: 'x' } }) });
+    assert.equal((await S.ort(nurNeu, 'resultkit')).wo, 'neu', 'ohne Originale am früheren Ort: neuer Ort');
+  });
+
+  await ok('Nur die Hauptdatei am neuen Ort zählt gegen den früheren Ort – Sicherungen, Vorher-Kopien, leere Ordner nicht (Codex)', async () => {
+    const t = async (dateien, bereich) => (await S.ort(baue('26.0603 Testweg Testort Ric', dateien), bereich)).wo;
+    assert.equal(await t({ 'Laborergebnisse/_Ergebnisse.json': 'a', '_Spektron/ResultKit/_Ergebnisse.vorher.json': 'v' }, 'resultkit'), 'alt', 'nur _Ergebnisse.vorher.json');
+    assert.equal(await t({ 'Laborergebnisse/_Ergebnisse.json': 'a', '_Spektron/ResultKit/_Ergebnisse.json': 'n' }, 'resultkit'), 'neu');
+    assert.equal(await t({ '_Projekt.json': 'a', '_Spektron/_Projekt_Sicherungen/s.json': 's' }, 'projekt'), 'alt', 'nur _Projekt_Sicherungen');
+    assert.equal(await t({ 'Fotos/_Bildumbenenner.json': 'a', '_Spektron/FotoKit/_FotoKit_Fassungen/k.json': 'k' }, 'fotokit'), 'alt', 'nur _FotoKit_Fassungen');
+    const PP = 'Probenplan 26.0603 Testweg Testort Ric';
+    assert.equal(await t({ [`Pläne/${PP}.probenplan`]: 'a', [`_Spektron/PlanKit/${PP} (Speicherkandidat x).probenplan`]: 'k' }, 'plankit'), 'alt', 'nur Speicherkandidat');
+    assert.equal(await t({ [`Pläne/PlanKit Notfallkopie 26.0603 Testweg Testort Ric 1.probenplan`]: 'a', [`_Spektron/PlanKit/${PP}.probenplan`]: 'n' }, 'plankit'), 'neu');
+    assert.equal(await t({ 'Abrechnung/Aufwand_DRKA.json': 'a', '_Spektron/BelegKit/_BelegKit_Sicherungen/x.json': 's' }, 'belegkit'), 'alt', 'nur Sicherungsordner');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/': null }, 'buero'), 'alt', 'leerer Ordner zählt nicht');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/b.json': 'b' }, 'buero'), 'neu');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/Thumbs.db': 'x', '_Spektron/Buero/desktop.ini': 'x' }, 'buero'), 'alt', 'Windows-Beiwerk zählt nicht (Codex)');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/Thumbs.db': 'x' }, 'buero'), 'alt', 'Ordner nur mit Beiwerk = leer');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/0f0e-leer/': null }, 'buero'), 'alt', 'verschachtelt leerer Ordner zählt nicht (Codex)');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/0f0e/auftrag.json': '{}' }, 'buero'), 'neu', 'verschachtelt mit Datei');
+    assert.equal(await t({ '_Buero/aufgaben/a.json': 'a', '_Spektron/Buero/aufgaben/0f0e/leer.json': '' }, 'buero'), 'alt', 'verschachtelt nur leere Datei');
+    // vermerkter Umzug: neuer Ort, auch wenn dort nur eine Sicherung liegt (wie bisher)
+    assert.equal(await t({ '_Projekt.json': 'a', '_Spektron/_Projekt_Sicherungen/s.json': 's', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: { projekt: {} } }) }, 'projekt'), 'neu');
+    // ohne Einträge am früheren Ort: neuer Ort wie bisher, auch nur mit Sicherung
+    assert.equal(await t({ '_Spektron/_Projekt_Sicherungen/s.json': 's' }, 'projekt'), 'neu');
+  });
+
+  await ok('PlanKit-Hauptdatei: „Probenplan <Projektnummer> …“ ohne Sicherungs-Zusatz; ohne lesbare Nummer jede .probenplan ohne Zusatz', async () => {
+    const wo = async (ordner, dateien) => (await S.ort(baue(ordner, dateien), 'plankit')).wo;
+    const neuName = '26.0606 Probenallee Fiktiv Dr. Ka', altName = '26.0606 Probenallee Fiktiv Dr.Ka';
+    // umbenannter Ordner: Plan in _Spektron trägt den alten Namen, gleiche Nummer → zählt
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan ${altName}.probenplan`]: 'n' }), 'neu', 'umbenannter Ordner');
+    // Notfallkopie / Download / Plan eines anderen Projekts allein in _Spektron → früherer Ort (der echte Plan in „Pläne“)
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/PlanKit Notfallkopie ${neuName} 1731000000000.probenplan`]: 'n' }), 'alt', 'Notfallkopie zählt nicht');
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/${neuName}.probenplan`]: 'n' }), 'alt', 'Download „<Ordner>.probenplan“ zählt nicht');
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan 26.0999 Anderswo Ric.probenplan`]: 'n' }), 'alt', 'Plan eines anderen Projekts zählt nicht');
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan 26.06061 X.probenplan`]: 'n' }), 'alt', 'längere Nummer ist eine andere');
+    // Nummer am Ende ohne Ort: „Probenplan 26.0606.probenplan“ zählt
+    assert.equal(await wo(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan 26.0606.probenplan`]: 'n' }), 'neu');
+    // ohne lesbare Projektnummer im Ordnernamen (von Hand übernommen, _Spektron vorhanden): heutige Regel
+    assert.equal(await wo('Musterprojekt Halle', { '_Spektron/BITTE NICHT ANFASSEN.txt': 'x', 'Pläne/Probenplan Musterprojekt Halle.probenplan': 'a', '_Spektron/PlanKit/irgendein Plan.probenplan': 'n' }), 'neu', 'ohne Nummer: jede .probenplan ohne Zusatz');
+    assert.equal(await wo('Musterprojekt Halle', { '_Spektron/BITTE NICHT ANFASSEN.txt': 'x', 'Pläne/Probenplan Musterprojekt Halle.probenplan': 'a', '_Spektron/PlanKit/irgendein Plan (vorher 1).probenplan': 'n' }), 'alt', 'ohne Nummer: Sicherung zählt weiter nicht');
+    // die Zeile nennt die Hauptdatei
+    const p = baue(neuName, { [`Pläne/Probenplan ${neuName}.probenplan`]: 'a', [`_Spektron/PlanKit/Probenplan ${altName}.probenplan`]: 'n', [`_Spektron/PlanKit/PlanKit Notfallkopie ${neuName} 1.probenplan`]: 'x' });
+    assert.match(S.zweiOrteText((await S.zweiOrte(p, ['plankit']))[0]), /Es gilt „_Spektron\/PlanKit\/Probenplan 26\.0606 Probenallee Fiktiv Dr\.Ka\.probenplan“/);
+  });
+
+  await ok('Codex Schlussrunde: nicht lesbare Hauptdatei / nicht lesbarer Ordner in _Spektron zählt als vorhanden, nie als leer', async () => {
+    const kaputt = (wurzel, pfad) => { let d = wurzel; const t = pfad.split('/'); for (const x of t.slice(0, -1)) d = d.k.get(x); d.k.get(t[t.length - 1]).getFile = async () => { throw fehler('NotReadableError', 'SMB weg'); }; };
+    const p = baue('26.0606 Lesefehler', { 'Pläne/Probenplan 26.0606 Lesefehler.probenplan': 'a', '_Spektron/PlanKit/Probenplan 26.0606 Lesefehler.probenplan': 'n' });
+    kaputt(p, '_Spektron/PlanKit/Probenplan 26.0606 Lesefehler.probenplan');
+    assert.equal((await S.ort(p, 'plankit')).wo, 'neu', 'Lesefehler an der Hauptdatei schaltet nicht zurück');
+    const q = baue('26.0607 Lesefehler', { 'Fotos/_Bildumbenenner.json': 'a', '_Spektron/FotoKit/_Bildumbenenner.json': 'n' });
+    kaputt(q, '_Spektron/FotoKit/_Bildumbenenner.json');
+    assert.equal((await S.ort(q, 'fotokit')).wo, 'neu');
+    // Büro: Unterordner nicht lesbar → zählt als Inhalt
+    const r = baue('26.0608 Lesefehler', { '_Buero/a.pdf': 'a', '_Spektron/Buero/Angebot/x.pdf': 'n' });
+    assert.equal((await S.ort(r, 'buero')).wo, 'neu', 'Vorbedingung');
+    const ang = r.k.get('_Spektron').k.get('Buero').k.get('Angebot'); ang.values = async function*(){ throw fehler('NotReadableError', 'weg'); };
+    assert.equal((await S.ort(r, 'buero')).wo, 'neu', 'nicht lesbarer Unterordner');
+    const r2 = baue('26.0608 Lesefehler', { '_Buero/a.pdf': 'a', '_Spektron/Buero/Angebot/x.pdf': '' });
+    assert.equal((await S.ort(r2, 'buero')).wo, 'alt', 'Gegenprobe: nur leere Datei → früherer Ort');
+    // leere Datei bleibt leer (unverändert)
+    assert.equal((await S.ort(baue('26.0609 Leer', { 'Fotos/_Bildumbenenner.json': 'a', '_Spektron/FotoKit/_Bildumbenenner.json': '' }), 'fotokit')).wo, 'alt');
+  });
+
+  await ok('Codex 2. Runde: leere Hauptdatei zählt nicht; Zeile nennt und datiert die Hauptdatei, nicht die Sicherung', async () => {
+    const zeit = (wurzel, pfad, ms) => { let d = wurzel; const t = pfad.split('/'); for (const x of t.slice(0, -1)) d = d.k.get(x); const f = d.k.get(t[t.length - 1]), g = f.getFile.bind(f); f.getFile = async () => Object.assign(await g(), { lastModified: ms }); };
+    // leere _Ergebnisse.json in _Spektron (abgebrochenes Kopieren) → früherer Ort
+    const leer = baue('26.0612 Leerweg Testort Ric', { 'Laborergebnisse/_Ergebnisse.json': '{"e":1}', '_Spektron/ResultKit/_Ergebnisse.json': '' });
+    assert.equal((await S.ort(leer, 'resultkit')).wo, 'alt', 'leere Hauptdatei zählt nicht');
+    // nur Sicherung in _Spektron, kein „laeuft“: früherer Ort, Zeile ohne „wurde unterbrochen“
+    const sich = baue('26.0613 Sicherweg Testort Ric', { 'Laborergebnisse/_Ergebnisse.json': '{"e":1}', '_Spektron/ResultKit/_Ergebnisse.vorher.json': '{"e":0}' });
+    let t = S.zweiOrteText((await S.zweiOrte(sich, ['resultkit']))[0]);
+    assert.doesNotMatch(t, /wurde unterbrochen/); assert.match(t, /Es gilt noch „Laborergebnisse\/_Ergebnisse\.json“ – in „_Spektron“ liegt nur eine Sicherung/);
+    // beide Seiten mit Haupt- und Sicherungsdatei; die neueste Datei überhaupt ist eine Sicherung in _Spektron
+    const p = baue('26.0614 Beideweg Testort Ric', { 'Laborergebnisse/_Ergebnisse.json': 'A', 'Laborergebnisse/_Ergebnisse.vorher.json': 'Av',
+      '_Spektron/ResultKit/_Ergebnisse.json': 'N', '_Spektron/ResultKit/_Ergebnisse.vorher.json': 'Nv' });
+    zeit(p, '_Spektron/ResultKit/_Ergebnisse.json', new Date(2026, 10, 5, 10, 0).getTime());
+    zeit(p, 'Laborergebnisse/_Ergebnisse.json', new Date(2026, 10, 7, 10, 0).getTime());
+    zeit(p, 'Laborergebnisse/_Ergebnisse.vorher.json', new Date(2026, 10, 8, 10, 0).getTime());
+    zeit(p, '_Spektron/ResultKit/_Ergebnisse.vorher.json', new Date(2026, 10, 9, 10, 0).getTime());
+    const z = (await S.zweiOrte(p, ['resultkit']))[0]; t = S.zweiOrteText(z);
+    assert.equal(z.altNeuer, true, 'nach den Hauptdateien: die am früheren Ort ist neuer');
+    assert.match(t, /Es gilt „_Spektron\/ResultKit\/_Ergebnisse\.json“ \(05\.11\.2026, 10:00\) und 1 weitere\. Nicht verwendet: „Laborergebnisse\/_Ergebnisse\.json“ \(07\.11\.2026, 10:00\) und 1 weitere\./);
+    assert.match(t, /Die Datei in „Laborergebnisse“ ist neuer/);
+  });
+
+  await ok('Eine sichtbare Zeile: zweiOrte() nennt beide Dateien mit Datum, zweiOrteText() sagt, welche gilt', async () => {
+    const p = baue('26.0604 Musterstr. Testort Dr. Ka', { '_Spektron/LabelKit/26.0604_Daten.json': '{"neu":1}', 'Laboraufträge/26.0604_Daten.json': '{"alt":1}', 'Laboraufträge/x.xls': 'x', '_Spektron/PlanKit/a.probenplan': '{}' });
+    const lk = p.k.get('_Spektron').k.get('LabelKit').k.get('26.0604_Daten.json'), la = p.k.get('Laboraufträge').k.get('26.0604_Daten.json');
+    const zeit = (d, ms) => { const g = d.getFile.bind(d); d.getFile = async () => Object.assign(await g(), { lastModified: ms }); };
+    zeit(lk, new Date(2026, 10, 9, 14, 32).getTime()); zeit(la, new Date(2026, 10, 8, 10, 5).getTime());
+    const z = await S.zweiOrte(p, ['labelkit', 'plankit', 'resultkit']);
+    assert.equal(z.length, 1); assert.equal(z[0].bereich, 'labelkit'); assert.equal(z[0].wo, 'neu'); assert.equal(z[0].altNeuer, false);
+    assert.deepEqual(z[0].neu.map(e => e.name), ['26.0604_Daten.json']); assert.deepEqual(z[0].alt.map(e => e.name), ['26.0604_Daten.json'], 'nur App-Dateien, keine XLS');
+    let t = S.zweiOrteText(z[0]);
+    assert.match(t, /LabelKit: Dateien an zwei Orten/);
+    assert.match(t, /Es gilt „_Spektron\/LabelKit\/26\.0604_Daten\.json“ \(09\.11\.2026, 14:32\)/);
+    assert.match(t, /Nicht verwendet: „Laboraufträge\/26\.0604_Daten\.json“ \(08\.11\.2026, 10:05\)/);
+    assert.match(t, /Gelöscht wird nichts/); assert.doesNotMatch(t, /ist neuer/);
+    zeit(la, new Date(2026, 10, 10, 9, 0).getTime());   // alte App-Fassung hat am früheren Ort gespeichert
+    t = S.zweiOrteText((await S.zweiOrte(p, ['labelkit']))[0]);
+    assert.match(t, /Die Datei in „Laboraufträge“ ist neuer/); assert.match(t, /Schließ alle Spektron-Tabs/);
+    // _Projekt.json: früherer Ort ist der Projektordner selbst
+    const q = baue('26.0605 Musterweg Testort Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}' });
+    t = S.zweiOrteText((await S.zweiOrte(q, ['projekt']))[0]);
+    assert.match(t, /Es gilt „_Spektron\/_Projekt\.json“ und 1 weitere\./); assert.match(t, /Nicht verwendet: „_Projekt\.json“/); assert.match(t, /im Projektordner/);
+    // gleichnamige Datei wird genannt, auch wenn daneben eine neuere liegt (z. B. Speicherkandidat in PlanKit)
+    const k = baue('26.0608 Z Ric', { '_Spektron/PlanKit/Probenplan 26.0608 Z Ric (Speicherkandidat x).probenplan': '{}', '_Spektron/PlanKit/Probenplan 26.0608 Z Ric.probenplan': '{}', 'Pläne/Probenplan 26.0608 Z Ric.probenplan': '{}' });
+    t = S.zweiOrteText((await S.zweiOrte(k, ['plankit']))[0]);
+    assert.match(t, /Es gilt „_Spektron\/PlanKit\/Probenplan 26\.0608 Z Ric\.probenplan“ und 1 weitere\. Nicht verwendet: „Pläne\/Probenplan 26\.0608 Z Ric\.probenplan“\./);
+    // unterbrochener Umzug: früherer Ort gilt, Zeile sagt das
+    const u = baue('26.0606 X Ste', { '_Projekt.json': '{}', '_Spektron/_Projekt_Sicherungen/a.json': '{}', '_Spektron/_Umzug.json': JSON.stringify({ format: 'spektron-umzug', version: 1, bereiche: {}, laeuft: { projekt: 'x' } }) });
+    t = S.zweiOrteText((await S.zweiOrte(u, ['projekt']))[0]); assert.match(t, /unterbrochen/); assert.match(t, /Es gilt noch „_Projekt\.json“/);
+    assert.deepEqual(await S.zweiOrte(baue('26.0400 Köln Nad', { 'Laboraufträge/a_Daten.json': '{}' })), [], 'Vor Spektron: nie');
+    assert.deepEqual(await S.zweiOrte(baue('26.0607 Y Nad', { '_Spektron/LabelKit/a_Daten.json': '{}' })), [], 'nur ein Ort: keine Zeile');
   });
 
   await ok('Ordnernamen ohne Groß-/Kleinschreibung und Unicode-Form (Pläne als NFD)', async () => {
