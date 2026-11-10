@@ -186,6 +186,25 @@ const hat = (d, ...pfad) => { let x = d; for (const t of pfad){ x = x.kind === '
     assert.match(S.zweiOrteText((await S.zweiOrte(p, ['plankit']))[0]), /Es gilt „_Spektron\/PlanKit\/Probenplan 26\.0606 Probenallee Fiktiv Dr\.Ka\.probenplan“/);
   });
 
+  await ok('Codex Schlussrunde: nicht lesbare Hauptdatei / nicht lesbarer Ordner in _Spektron zählt als vorhanden, nie als leer', async () => {
+    const kaputt = (wurzel, pfad) => { let d = wurzel; const t = pfad.split('/'); for (const x of t.slice(0, -1)) d = d.k.get(x); d.k.get(t[t.length - 1]).getFile = async () => { throw fehler('NotReadableError', 'SMB weg'); }; };
+    const p = baue('26.0606 Lesefehler', { 'Pläne/Probenplan 26.0606 Lesefehler.probenplan': 'a', '_Spektron/PlanKit/Probenplan 26.0606 Lesefehler.probenplan': 'n' });
+    kaputt(p, '_Spektron/PlanKit/Probenplan 26.0606 Lesefehler.probenplan');
+    assert.equal((await S.ort(p, 'plankit')).wo, 'neu', 'Lesefehler an der Hauptdatei schaltet nicht zurück');
+    const q = baue('26.0607 Lesefehler', { 'Fotos/_Bildumbenenner.json': 'a', '_Spektron/FotoKit/_Bildumbenenner.json': 'n' });
+    kaputt(q, '_Spektron/FotoKit/_Bildumbenenner.json');
+    assert.equal((await S.ort(q, 'fotokit')).wo, 'neu');
+    // Büro: Unterordner nicht lesbar → zählt als Inhalt
+    const r = baue('26.0608 Lesefehler', { '_Buero/a.pdf': 'a', '_Spektron/Buero/Angebot/x.pdf': 'n' });
+    assert.equal((await S.ort(r, 'buero')).wo, 'neu', 'Vorbedingung');
+    const ang = r.k.get('_Spektron').k.get('Buero').k.get('Angebot'); ang.values = async function*(){ throw fehler('NotReadableError', 'weg'); };
+    assert.equal((await S.ort(r, 'buero')).wo, 'neu', 'nicht lesbarer Unterordner');
+    const r2 = baue('26.0608 Lesefehler', { '_Buero/a.pdf': 'a', '_Spektron/Buero/Angebot/x.pdf': '' });
+    assert.equal((await S.ort(r2, 'buero')).wo, 'alt', 'Gegenprobe: nur leere Datei → früherer Ort');
+    // leere Datei bleibt leer (unverändert)
+    assert.equal((await S.ort(baue('26.0609 Leer', { 'Fotos/_Bildumbenenner.json': 'a', '_Spektron/FotoKit/_Bildumbenenner.json': '' }), 'fotokit')).wo, 'alt');
+  });
+
   await ok('Codex 2. Runde: leere Hauptdatei zählt nicht; Zeile nennt und datiert die Hauptdatei, nicht die Sicherung', async () => {
     const zeit = (wurzel, pfad, ms) => { let d = wurzel; const t = pfad.split('/'); for (const x of t.slice(0, -1)) d = d.k.get(x); const f = d.k.get(t[t.length - 1]), g = f.getFile.bind(f); f.getFile = async () => Object.assign(await g(), { lastModified: ms }); };
     // leere _Ergebnisse.json in _Spektron (abgebrochenes Kopieren) → früherer Ort

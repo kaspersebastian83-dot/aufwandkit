@@ -130,7 +130,8 @@ async function passende(dir, b){
 }
 /** Liegt am Ort die Hauptdatei des Bereichs? Leere Dateien (0 Byte), leere Ordner (auch verschachtelt) und Windows-Beiwerk
     zählen nicht – so bleibt ein abgebrochenes Kopieren zurück, und das ist kein Ersatz für die Dateien am früheren Ort. */
-async function dateiMitInhalt(fh){ try{ return (await fh.getFile()).size > 0; }catch(e){ return false; } }
+// Nicht lesbar (z. B. SMB kurz weg) zählt als vorhanden – nie als „leer“, sonst schaltete ein Lesefehler auf den früheren Ort zurück (Codex)
+async function dateiMitInhalt(fh){ try{ return (await fh.getFile()).size > 0; }catch(e){ return true; } }
 async function ordnerMitInhalt(d, tiefe){
   if (!auflistbar(d) || tiefe > 8) return false;
   for await (const y of d.values()){
@@ -138,7 +139,7 @@ async function ordnerMitInhalt(d, tiefe){
     try{
       if (y.kind === 'directory'){ if (await ordnerMitInhalt(await d.getDirectoryHandle(y.name), tiefe + 1)) return true; }
       else if (await dateiMitInhalt(await d.getFileHandle(y.name))) return true;
-    }catch(e){}
+    }catch(e){ return true; }   // nicht lesbar = vorhanden
   }
   return false;
 }
@@ -150,7 +151,7 @@ async function hauptDa(dir, b, k){
     try{
       if (x.kind === 'directory'){ if (await ordnerMitInhalt(await dir.getDirectoryHandle(x.name), 1)) return true; }
       else if (await dateiMitInhalt(await dir.getFileHandle(x.name))) return true;
-    }catch(e){}
+    }catch(e){ return true; }   // nicht lesbar = vorhanden
   }
   return false;
 }
@@ -298,7 +299,7 @@ async function umzugListe(projektDir){
 }
 
 const api = Object.freeze({ VERSION, ORDNER, AB, UMSTELLUNG, MARKER, HINWEIS_DATEI, HINWEIS_TEXT, BEREICHE,
-  projektKey, istSpektronProjekt, ort, umzugListe, spektronDir, unter, hauptDa, zweiOrte, zweiOrteText, datumText });
+  projektKey, projektNr, planHaupt, istSpektronProjekt, ort, umzugListe, spektronDir, unter, hauptDa, zweiOrte, zweiOrteText, datumText });
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 root.SpektronOrdner = api;
 })(typeof window !== 'undefined' ? window : globalThis);
