@@ -19,7 +19,8 @@
 
    ort(projektordner, bereich) sagt, wo ein Bereich gerade liegt. Alle Apps lesen UND schreiben dort:
      1. Neuer Ort hat passende Einträge und der frühere keine, oder der Umzug ist vermerkt → neu.
-        Neuer Ort hat die Hauptdatei des Bereichs (z. B. _Projekt.json, nicht nur _Projekt_Sicherungen/) → neu – auch, wenn
+        Neuer Ort hat die Hauptdatei des Bereichs (z. B. _Projekt.json, nicht nur _Projekt_Sicherungen/; LabelKit: nur eine
+        „…_Daten.json“ dieses Projekts, seit 11.11.2026 – eine fremde schaltet nicht mehr um) → neu – auch, wenn
         am früheren Ort etwas liegt („konflikt“; z. B. eine Datei, die jemand dorthin kopiert hat). Ausnahme: der Umzug dieses
         Bereichs läuft gerade oder wurde unterbrochen („laeuft“ im Umzugsvermerk) → dann gelten noch die Originale.
      2. Sonst: früherer Ort hat passende Einträge → alt.
@@ -77,11 +78,53 @@ function planHaupt(name, art, k){
   if (!k || !k.nr) return true;
   return (PLAN_NR.exec(n) || [])[1] === k.nr;
 }
+/* LabelKit-Projektdatei – dieselbe Regel wie LabelKit 5.1.0 (eigeneProjektdatei/projektdateienLesen), Audit o7/m1 (11.11.2026):
+   eigen = Name (NFC, ohne Rand-Leerzeichen) beginnt mit der Projektnummer, danach keine Ziffer („26.0604_Daten.json“, auch die
+   datierten „26.0604_12.10.2025_Daten.json“; nicht „26.06041…“). Die Nummer wird wie in LabelKit gelesen (2 Ziffern, Punkt, 3–6
+   Ziffern); ohne solche Nummer zählt jede „…_Daten.json“ als eigen. Fremde Dateien werden nie gelesen. */
+const LK_DATEI = /_Daten\.json$/i;
+const LK_NR = /(?<!\d)\d{2}\.\d{3,6}(?!\d)/;
+const lkNr = nr => (LK_NR.exec(nfc(nr)) || [''])[0];
+function labelkitEigen(name, nr){
+  if (!LK_DATEI.test(nfc(name))) return false;
+  const k = lkNr(nr); if (!k) return true;
+  const n = nfc(name).trim();
+  return n.startsWith(k) && !/^\d/.test(n.slice(k.length));
+}
+const lkHaupt = (name, art, k) => art === 'file' && labelkitEigen(name, k && k.nr);
+/** Welche LabelKit-Datei gilt im Ordner dir (Projektordnername für die Nummer)? Wie LabelKit: „<Nr>_Daten.json“ gilt; eine andere
+    eigene Datei nur, wenn sie laut „gespeichertAm“ später gespeichert wurde (Kopieren setzt das Änderungsdatum neu); ohne feste Datei
+    die eigene mit dem neuesten Änderungsdatum. → { datei: { name, file, text } | null, fremd: [Namen], eigene: [Namen] }.
+    Keine eigene Datei → datei null – nie auf eine fremde ausweichen. */
+const lkGespeichert = text => { try{ const t = Date.parse(JSON.parse(text).gespeichertAm); return isNaN(t) ? null : t; }catch(e){ return null; } };
+async function labelkitWahl(dir, projektName){
+  const r = { datei: null, fremd: [], eigene: [] };
+  if (!auflistbar(dir)) return r;
+  const nr = projektNr(projektName), k = lkNr(nr) || nr, fest = k ? nfc(k + '_Daten.json').toLowerCase() : null, alle = [];
+  for await (const h of dir.values()){
+    if (h.kind !== 'file' || !LK_DATEI.test(nfc(h.name))) continue;
+    if (!labelkitEigen(h.name, nr)){ r.fremd.push(h.name); continue; }   // fremde Datei: nicht einmal lesen
+    const file = await (await dir.getFileHandle(h.name)).getFile();
+    alle.push({ name: h.name, file, text: await file.text(), fest: fest !== null && nfc(h.name).toLowerCase() === fest });
+    r.eigene.push(h.name);
+  }
+  r.fremd.sort((a, b) => a.localeCompare(b));
+  const f = alle.find(e => e.fest);
+  if (f){
+    let beste = lkGespeichert(f.text); if (beste === null) beste = f.file.lastModified;
+    r.datei = f;
+    for (const e of alle){ const t = e.fest ? null : lkGespeichert(e.text); if (t !== null && t > beste){ beste = t; r.datei = e; } }
+  } else for (const e of alle) if (!r.datei || e.file.lastModified > r.datei.file.lastModified) r.datei = e;
+  if (r.datei) r.datei = { name: r.datei.name, file: r.datei.file, text: r.datei.text };
+  return r;
+}
 const BEREICHE = Object.freeze({
   projekt:            Object.freeze({ app: 'Projektzentrale, FotoKit', alt: [], neu: [], passt: oder(datei('_Projekt.json'), ordner('_Projekt_Sicherungen')), haupt: datei('_Projekt.json') }),
   fotokit:            Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit'], passt: oder(datei('_Bildumbenenner.json'), ordner('_FotoKit_Fassungen')), haupt: datei('_Bildumbenenner.json') }),
   fotokitPruefsummen: Object.freeze({ app: 'FotoKit', alt: ['Fotos'], neu: ['FotoKit', 'Pruefsummen'], passt: muster(/^Pruefsummen_Originale_.*\.sha256$/i) }),
-  labelkit:           Object.freeze({ app: 'LabelKit', alt: ['Laboraufträge'], neu: ['LabelKit'], passt: muster(/_Daten\.json$/i) }),
+  // haupt: nur die LabelKit-Datei dieses Projekts (Audit o7) – eine fremde „…_Daten.json“ in „_Spektron/LabelKit“ schaltet den Bereich nicht um.
+  // fremd: was passt, aber nicht haupt ist, gehört zu einem anderen Projekt (für die Zeile). passt bleibt: der Umzug nimmt weiter jede mit.
+  labelkit:           Object.freeze({ app: 'LabelKit', alt: ['Laboraufträge'], neu: ['LabelKit'], passt: muster(/_Daten\.json$/i), haupt: lkHaupt, fremd: true }),
   labelkitAblage:     Object.freeze({ app: 'LabelKit', alt: ['Feldprotokolle'], neu: ['LabelKit'], passt: datei('_Ablage-Protokoll.txt') }),
   resultkit:          Object.freeze({ app: 'ResultKit', alt: ['Laborergebnisse'], neu: ['ResultKit'], passt: datei('_Ergebnisse.json', '_Ergebnisse.vorher.json'), haupt: datei('_Ergebnisse.json') }),
   plankit:            Object.freeze({ app: 'PlanKit', alt: ['Pläne'], neu: ['PlanKit'], passt: muster(/\.probenplan$/i), haupt: planHaupt }),
@@ -258,7 +301,8 @@ async function zweiOrte(projektDir, bereiche){
     // „neuer“ nur nach den Hauptdateien beurteilen (eine neuere Sicherung sagt nichts über die Datei, die die App liest)
     const max = l => { const h = l.filter(e => e.haupt && !e.ordner); return (h.length ? h : l).reduce((m, e) => Math.max(m, e.zeit || 0), 0); };
     aus.push({ bereich: id, app: b.app, wo: o.wo, umgezogen: o.umgezogen, unterbrochen: o.unterbrochen,
-      neuPfad: [ORDNER].concat(b.neu).join('/'), altPfad: b.alt.join('/'), neu, alt, altNeuer: max(alt) > max(neu) });
+      neuPfad: [ORDNER].concat(b.neu).join('/'), altPfad: b.alt.join('/'), neu, alt, altNeuer: max(alt) > max(neu),
+      nurFremd: !!b.fremd && neu.length > 0 && !neu.some(e => e.haupt) });   // in „_Spektron“ nur Dateien anderer Projekte
   }
   return aus;
 }
@@ -276,6 +320,11 @@ function zweiOrteText(e, optionen){
   const pz = !(optionen && optionen.projektzentrale);
   const altOrt = e.altPfad ? 'in „' + e.altPfad + '“' : 'im Projektordner';
   const a = e.alt[0] ? e.alt[0].name : '', altText = dateienText(e.altPfad, e.alt), neuText = dateienText(e.neuPfad, e.neu, a);
+  if (e.wo === 'alt' && !e.unterbrochen && e.nurFremd){   // Audit o7: fremde Datei in „_Spektron“, die eigene am früheren Ort
+    const n = e.neu.filter(x => !x.ordner).map(x => x.name), fremd = '„' + n[0] + '“' + (n.length > 1 ? ' und ' + (n.length - 1) + ' weitere' : '');
+    return '⚠ ' + e.app + ': Dateien an zwei Orten. Es gilt ' + altText + '. In „' + e.neuPfad + '“ ' + (n.length > 1 ? 'liegen' : 'liegt') + ' nur ' + fremd +
+      ' – nach dem Namen nicht von diesem Projekt; keine App liest sie.' + (pz ? ' Gelöscht wird nichts – in der Projektzentrale steht, was zu tun ist.' : '');
+  }
   if (e.wo === 'alt' && e.unterbrochen) return '⚠ ' + e.app + ': Dateien an zwei Orten – der Umzug in „' + ORDNER + '“ wurde unterbrochen. Es gilt noch ' +
     altText + '. Nicht verwendet: ' + neuText + '.' + (pz ? ' Bitte in der Projektzentrale „Umzug erneut ausführen“.' : '');
   if (e.wo === 'alt') return '⚠ ' + e.app + ': Dateien an zwei Orten. Es gilt noch ' + altText + ' – in „' + ORDNER + '“ liegt nur ' +
@@ -299,7 +348,7 @@ async function umzugListe(projektDir){
 }
 
 const api = Object.freeze({ VERSION, ORDNER, AB, UMSTELLUNG, MARKER, HINWEIS_DATEI, HINWEIS_TEXT, BEREICHE,
-  projektKey, projektNr, planHaupt, istSpektronProjekt, ort, umzugListe, spektronDir, unter, hauptDa, zweiOrte, zweiOrteText, datumText });
+  projektKey, projektNr, planHaupt, labelkitEigen, labelkitWahl, istSpektronProjekt, ort, umzugListe, spektronDir, unter, hauptDa, zweiOrte, zweiOrteText, datumText });
 if (typeof module !== 'undefined' && module.exports) module.exports = api;
 root.SpektronOrdner = api;
 })(typeof window !== 'undefined' ? window : globalThis);

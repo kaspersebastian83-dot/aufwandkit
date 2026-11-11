@@ -453,9 +453,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.16.0';
+const APP_VERSION = '1.16.1';
 const APP_DATE = '2026-11-01';
 const CHANGELOG = [
+  ['1.16.1', '11.11.2026', 'Proben für Titel 2 (Labor) nur noch aus der LabelKit-Datei dieses Projekts (Name beginnt mit der Projektnummer, Regel wie LabelKit 5.1) – bisher zählte die neueste beliebige …_Daten.json, auch die eines anderen Projekts. Liegt nur eine fremde Datei da, zählt BelegKit nichts und sagt es. Spektron-Leiste: „Proben ✓“ nur für eine Datei dieses Projekts.'],
   ['1.16.0', '01.11.2026', 'Spektron-Leiste v2: Schritt „BerichtKit · Brandbericht“ bzw. „· Asbestbericht“, wenn BerichtKit sich die Berichtsart des Projekts gemerkt hat (der Link öffnet genau diese); Haken bei BerichtKit nur für einen gespeicherten Bericht dieser Art, dessen Datei noch in „Mitteilungen“ liegt (Projekte ohne BerichtKit-Angaben wie bisher nach dem Dateinamen). Nach dem gespeicherten Bericht heißt der Knopf „Weiter: Ans Büro übergeben →“ (Projektzentrale, eigenes Fenster). „Weiter“ nennt im Tooltip Ziel und Grund. Keine Nummern mehr an den Schritten (✓ reicht), die eigene App ist deutlicher markiert, „Aktuelles Projekt“ im Projektmenü lädt nicht mehr neu. Der Knopf „← Projektzentrale“ ist weg (er öffnete die Projektzentrale im BelegKit-Fenster) – „⌂ Projektzentrale“ in der Leiste öffnet sie im eigenen Fenster.'],
   ['1.15.0', '30.10.2026', 'Spektron-Leiste: neuer Schritt „BerichtKit“ (Asbest-Untersuchungsbericht) zwischen PlanKit und BelegKit – Haken, sobald ein Bericht in „Mitteilungen“ liegt. Gemeinsames Modul spektron-ordner.js: neuer Bereich „BerichtKit“ (Angaben zum Bericht in „_Spektron/BerichtKit“).'],
   ['1.14.0', '29.10.2026', 'Prüfbericht vom 29.10., Teil 2: „Stand speichern“ liest vorher alles neu und rechnet nach. Hat ein Kollege inzwischen Zeiten, Proben oder Berichte geändert, wird nichts abgelegt – die neuen Mengen stehen dann da und werden erst geprüft; der zweite Klick speichert. Die Prüfsummen im Stand gehören genau zu den gelesenen Dateien (bisher konnte ein Stand mit 1 Stunde die Prüfsumme einer inzwischen auf 7 Stunden geänderten Zeitdatei bekommen, und BüroKit hielt ihn für aktuell). Berichtsangaben (abrechnen, Seitenzahl) und Zuordnungen der Probenarten: Schreiben zwei Kollegen gleichzeitig, geht keine Änderung mehr verloren.'],
@@ -759,12 +760,14 @@ async function ladeAlles(){
   N.pj = null;
   try{ const j = await quelleJson(await bereich(proj, 'projekt'), '_Projekt.json', '_Projekt.json'); if (j && j.daten && typeof j.daten === 'object') N.pj = j.daten; }
   catch(e){ fehler.push(e.message); }
-  // LabelKit: neueste …_Daten.json
-  N.labelkit = null;
-  const lab = await bereich(proj, 'labelkit', false);
+  // LabelKit: nur die Datei dieses Projekts (Audit m1, Regel wie LabelKit 5.1 – spektron-ordner.js labelkitWahl); nie die neueste
+  // beliebige …_Daten.json. Keine eigene Datei → nichts gezählt, die Karte sagt es.
+  N.labelkit = null; N.labelkitFremd = [];
+  const lab = await bereich(proj, 'labelkit', false), SOL = typeof window !== 'undefined' ? window.SpektronOrdner : null;
   if (lab){
     let best = null;
-    for await (const h of lab.values()) if (h.kind === 'file' && /_Daten\.json$/i.test(h.name)){ const f = await h.getFile(); if (!best || f.lastModified > best.lastModified) best = f; }
+    if (SOL && SOL.labelkitWahl){ const w = await SOL.labelkitWahl(lab, proj.name); best = w.datei ? w.datei.file : null; N.labelkitFremd = w.fremd; }
+    else for await (const h of lab.values()) if (h.kind === 'file' && /_Daten\.json$/i.test(h.name)){ const f = await h.getFile(); if (!best || f.lastModified > best.lastModified) best = f; }   // ohne Modul (Testausschnitte)
     if (best){ quelle(lab, best.name, ORDNER.lab + '/' + best.name, best); try{ const daten = JSON.parse(await best.text()); N.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
       catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); quellen.push(`LabelKit-Datei „${best.name}“ ist nicht lesbar – Titel 2 (Labor) fehlt.`); } }
   }
@@ -1123,9 +1126,14 @@ function posOptionen(gewaehlt){
   return `<option value=""${!gewaehlt ? ' selected' : ''}>— zuordnen —</option><option value="-"${gewaehlt === '-' ? ' selected' : ''}>nicht abrechnen</option>`
     + lab.map(p => `<option value="${esc(p.key)}"${gewaehlt === p.key ? ' selected' : ''}>${esc(p.nr || '(ohne Nr.)')} ${esc(p.text)}</option>`).join('');
 }
+/** Keine LabelKit-Datei dieses Projekts, nur fremde (Audit m1) → ein Satz, sonst ''. */
+function fremdLabelkit(){
+  const f = A.labelkitFremd || []; if (A.labelkit || !f.length) return '';
+  return `Keine LabelKit-Datei von Projekt ${A.proj ? A.proj.nr : ''} – nur „${f[0]}“${f.length > 1 ? ` und ${f.length - 1} weitere` : ''} (nach dem Namen nicht von diesem Projekt). BelegKit zählt sie nicht.`;
+}
 function zeichneProben(){
   const s = $('seite'), L = A.labelkit;
-  if (!L){ s.innerHTML = `<div class="karte"><h2>Proben</h2><p>Keine LabelKit-Projektdatei (<code>…_Daten.json</code>) in „${ORDNER.lab}“. Proben werden in LabelKit erfasst und gespeichert.</p></div>`; return; }
+  if (!L){ s.innerHTML = `<div class="karte"><h2>Proben</h2><p>${fremdLabelkit() ? esc(fremdLabelkit()) + ' Titel 2 (Labor) bleibt leer.' : `Keine LabelKit-Projektdatei (<code>…_Daten.json</code>) in „${ORDNER.lab}“.`} Proben werden in LabelKit erfasst und gespeichert.</p></div>`; return; }
   s.innerHTML = `<div class="karte"><div class="kopfzeile"><h2>Proben aus LabelKit</h2><span class="m"><code>${esc(ORDNER.lab)}/${esc(L.datei.name)}</code> · Stand ${esc(zeitDe(L.datei.lastModified))}</span></div>
     <table class="liste"><thead><tr><th>Art der Probe / Analyse</th><th class="r">Anzahl</th><th>Position in der Rechnung</th></tr></thead><tbody>
     ${L.kategorien.map(k => `<tr><td>${esc(k.label)}${k.ohneBezeichnung ? ` <span class="m">(${k.ohneBezeichnung} ohne Bezeichnung)</span>` : ''}</td><td class="r"><b>${k.anzahl}</b></td>
@@ -1168,7 +1176,7 @@ function abrechnungJetzt(){
 }
 function zeichneAbrechnung(){
   const s = $('seite'), a = abrechnungJetzt(), P = A.preise;
-  const hin = [...a.hinweise]; if (!A.labelkit && !hin.some(h => h.startsWith('LabelKit-Datei'))) hin.unshift('Keine LabelKit-Projektdatei gefunden – Titel 2 (Labor) fehlt.');
+  const hin = [...a.hinweise]; if (!A.labelkit && !hin.some(h => h.startsWith('LabelKit-Datei'))) hin.unshift(fremdLabelkit() ? fremdLabelkit() + ' Titel 2 (Labor) fehlt.' : 'Keine LabelKit-Projektdatei gefunden – Titel 2 (Labor) fehlt.');
   const tab = a.titel.map(ti => `<tbody><tr class="titel"><td>Titel ${ti.nr}</td><td colspan="${P ? 5 : 3}">${esc(ti.text).replace(/\n/g, '<br>')}</td></tr>
     ${ti.zeilen.map(x => `<tr><td class="mono">${esc(x.nr) || '<span class="warn">?</span>'}</td><td>${esc(x.text)}${x.zusatz ? ` <span class="m">(${esc(x.zusatz)})</span>` : ''}<div class="quelle">${esc(x.quelle)}</div></td>
       <td class="r"><b>${AW.fmt(x.menge)}</b></td><td>${esc(x.einheit)}</td>${P ? `<td class="r">${x.preis != null ? AW.euro(x.preis) : ''}</td><td class="r">${x.gesamt != null ? AW.euro(x.gesamt) : ''}</td>` : ''}</tr>`).join('')}
@@ -1471,7 +1479,12 @@ start().catch(e => meldung('err', 'Fehler beim Start: ' + esc(e.message)));
     try{ var fo = await bereich('fotokit', 'Fotos'); if (fo) s.fotos = await fo.getFileHandle('_Bildumbenenner.json').then(function(){ return true; }, function(){ return false; }); }catch(e4){}
     try{
       var la = await bereich('labelkit', 'Laboraufträge');
-      if (la) for await (var f of la.values()) if (f.kind === 'file' && /_Daten\.json$/i.test(f.name)){ s.label = true; break; }
+      // ✓ nur für die LabelKit-Datei dieses Projekts (Audit o8; Regel wie LabelKit 5.1): Name beginnt mit der Projektnummer, danach keine Ziffer
+      var lkM = /^(\d{2}\.\d{2,6})(?:[\s_-]|$)/.exec(nfc(proj.name).trim()), lkNr = lkM ? ((/(?<!\d)\d{2}\.\d{3,6}(?!\d)/.exec(lkM[1]) || [''])[0]) : '';
+      if (la) for await (var f of la.values()) if (f.kind === 'file' && /_Daten\.json$/i.test(nfc(f.name))){
+        var lkN = nfc(f.name).trim();
+        if (!lkNr || (lkN.indexOf(lkNr) === 0 && !/^\d/.test(lkN.slice(lkNr.length)))){ s.label = true; break; }
+      }
     }catch(e5){}
     try{ var le = await bereich('resultkit', 'Laborergebnisse'); if (le) s.ergebnis = await le.getFileHandle('_Ergebnisse.json').then(function(){ return true; }, function(){ return false; }); }catch(e8){}   // ResultKit: geprüfte Ergebnisse übernommen
     try{
