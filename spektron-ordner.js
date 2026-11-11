@@ -260,8 +260,12 @@ async function ort(projektDir, bereich, optionen){
   const v = (await umzugVermerk(sp)) || { bereiche: {} };
   const umgezogen = !!v.bereiche[bereich];
   const unterbrochen = !umgezogen && !!(v.laeuft && typeof v.laeuft === 'object' && v.laeuft[bereich]);
-  if (neuHat && (!altHat || umgezogen)) return fertig('neu', neuDir, konflikt, umgezogen, false);
-  if (altHat && !unterbrochen && await hauptDa(neuDir, b, { nr: projektNr(projektDir.name) })) return fertig('neu', neuDir, konflikt, umgezogen, false);   // K1
+  const k = { nr: projektNr(projektDir.name) };
+  // Codex (11.11.2026): Umzug vermerkt, in „_Spektron/LabelKit“ aber nur Dateien anderer Projekte und die Datei dieses Projekts am
+  // früheren Ort (z. B. von einer älteren App-Fassung) → der frühere Ort gilt. Nur für LabelKit (fremd); alle anderen Bereiche wie bisher.
+  const nurFremdNeu = umgezogen && altHat && !!b.fremd && !(await hauptDa(neuDir, b, k)) && await hauptDa(altDir, b, k);
+  if (neuHat && (!altHat || umgezogen) && !nurFremdNeu) return fertig('neu', neuDir, konflikt, umgezogen, false);
+  if (altHat && !unterbrochen && !nurFremdNeu && await hauptDa(neuDir, b, k)) return fertig('neu', neuDir, konflikt, umgezogen, false);   // K1
   if (altHat) return fertig('alt', altDir, konflikt, umgezogen, unterbrochen);
   return (sp || UMSTELLUNG) ? fertig('neu', neuDir, false, umgezogen, false) : fertig('alt', altDir, false, umgezogen, false);
 }
