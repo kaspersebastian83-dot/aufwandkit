@@ -76,6 +76,17 @@ const stand=c=>({berichte:c.A.berichte.map(b=>b.stamm).join(','),seiten:c.abrech
    const z3=await sitzung(tmp,Z,'26.0103',{});await z3.ladeAlles();
    assert.match(z3.abrechnungJetzt().hinweise.find(h=>/^LabelKit\/ResultKit/.test(h))||'',/^LabelKit\/ResultKit: P2 PAK ist in LabelKit storniert, hat aber laut ResultKit \(übernommen am 19\.11\.2026\) ein Laborergebnis/);
    assert.ok(!z3.A.quellDateien.some(q=>/_Ergebnisse/.test(q.pfad)),'nicht unter den Quellen des Stands');}
+  // Audit Lauf 3, C7 (1.17.2): Anschreiben aus BüroKit sind keine Berichte – außer eines ist schon zur Abrechnung angekreuzt
+  {const A3=await projekt(tmp,'26.0104 Fiktiv A','26.0104','1',1);
+   for(const n of ['Anschreiben 1. Mitteilung.docx','Anschreiben_1. Mitteilung_VN.docx'])await fs.writeFile(path.join(A3,'Mitteilungen',n),'x');
+   await fs.writeFile(path.join(A3,'Mitteilungen','Anschreiben_1. Mitteilung_Auftraggeber.pdf'),pdf(1));
+   const a=await sitzung(tmp,A3,'26.0104',{});await a.ladeAlles();
+   assert.equal(a.A.berichte.map(b=>b.stamm).join(','),'1__Bericht','Anschreiben nicht unter „Berichte“');
+   assert.ok(!a.A.quellDateien.some(q=>/Anschreiben/.test(q.pfad)),'Anschreiben nicht unter den gelesenen Quellen');
+   await fs.writeFile(path.join(A3,'Abrechnung','_Abrechnung.json'),JSON.stringify({berichte:{'1__Bericht':{abrechnen:true,seiten:'10'},'Anschreiben_1. Mitteilung_Auftraggeber':{abrechnen:true,seiten:'1'}}}));
+   const b=await sitzung(tmp,A3,'26.0104',{});await b.ladeAlles();
+   assert.equal(b.A.berichte.map(x=>x.stamm).join(','),'1__Bericht,Anschreiben_1. Mitteilung_Auftraggeber','angekreuztes Anschreiben bleibt sichtbar');
+   assert.equal(b.abrechnungJetzt().seiten,11);}
   console.log('OK Einlesen: doppelt „Neu einlesen“ und Projektwechsel während des Ladens ohne doppelte Stunden/Berichte');
  }finally{await fs.rm(tmp,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exit(1);});
