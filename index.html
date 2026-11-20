@@ -269,6 +269,29 @@ const AW = (() => {
       pn98OhneProbe: L('pn98Proben').filter(p => !quellen.has(t(p.id))).length, rueckstell: L('sonstigeProben').filter(p => rueckstell(p) && !storniert(p)).length,
       storniert: sto };
   }
+  /** ResultKit-Übernahme (_Ergebnisse.json), nur gelesen – für den Storno-Hinweis (Audit Lauf 2, B1).
+      null = keine gültige Übernahme dieses Projekts. storniertMitWert (ab ResultKit 2.6.0): in LabelKit stornierte Proben, für die ein
+      geltender Prüfbericht Messwerte hat; fehlt das Feld (ältere Übernahme), ist es null = unbekannt, nicht „keine“. */
+  function ergebnisInfo(daten, projektNr){
+    const d = daten && typeof daten === 'object' && !Array.isArray(daten) ? daten : null;
+    if (!d || d.format !== 'spektron-ergebnisse' || d.version !== 1) return null;
+    if (t(d.projekt) && t(projektNr) && t(d.projekt) !== t(projektNr)) return null;   // Übernahme aus einem anderen Projekt zählt nicht
+    const u = /^\d{4}-\d{2}-\d{2}/.exec(t(d.uebernommen));
+    return { uebernommen: u ? u[0] : '', storniertMitWert: Array.isArray(d.storniertMitWert) ? d.storniertMitWert.map(x => t(x).toUpperCase()).filter(Boolean) : null };
+  }
+  /** Stornierte LabelKit-Proben gegen die ResultKit-Übernahme: { mit: [{nr, liste}], bekannt, am } – bekannt = ResultKit hat das Feld geschrieben. */
+  function stornoLaborwert(sto, erg){
+    const bekannt = !!erg && Array.isArray(erg.storniertMitWert), set = new Set(bekannt ? erg.storniertMitWert : []);
+    return { mit: (sto || []).filter(x => x.nr && set.has(x.nr.toUpperCase())), bekannt, da: !!erg, am: erg && erg.uebernommen ? ` (übernommen am ${datumDe(erg.uebernommen)})` : '' };
+  }
+  /** Texte zum Storno (Abrechnung und Karte „Proben“): { mit: Satz zu den Proben mit Laborergebnis | '', rest: Zusatz zum Storno-Hinweis } */
+  function stornoTexte(sto, erg){
+    const lw = stornoLaborwert(sto, erg), n = lw.mit.length, liste = lw.mit.map(x => x.nr + ' ' + x.liste).join(', ');
+    const mit = n ? `${liste} ${n === 1 ? 'ist' : 'sind'} in LabelKit storniert, ${n === 1 ? 'hat' : 'haben'} aber laut ResultKit${lw.am} ein Laborergebnis – ${n === 1 ? 'soll sie' : 'sollen sie'} berechnet werden, in LabelKit das Storno aufheben.` : '';
+    const rest = lw.bekannt ? (n ? '' : ` Laut ResultKit${lw.am} hat keine davon ein Laborergebnis.`)
+      : ' Wurde eine davon doch analysiert und soll berechnet werden: in LabelKit das Storno aufheben.' + (lw.da ? ' Ob eine davon ein Laborergebnis hat, zeigt ResultKit nach „Erneut übernehmen“.' : '');
+    return { mit, rest };
+  }
   function kategorien(daten){
     const d = daten && typeof daten === 'object' ? daten : {}, k = new Map();
     /* „ohne Bezeichnung“ wie LabelKits eigene Prüfung: Raum/Ort (z2), bei Bohrkernen die BK-Bezeichnung */
@@ -402,7 +425,9 @@ const AW = (() => {
     for (const [key, e] of jePos) zeile(key, e.menge, 'LabelKit: ' + e.teile.join(', '));
     const lk = o.labelkit || {};
     if (lk.storniert && lk.storniert.length){ const n = lk.storniert.length;
-      hinweise.push(`LabelKit: ${n} stornierte Probe${n === 1 ? '' : 'n'} nicht abgerechnet (${lk.storniert.map(x => (x.nr ? x.nr + ' ' : '') + x.liste).join(', ')}). Wurde eine davon doch analysiert und soll berechnet werden: in LabelKit das Storno aufheben.`); }
+      const st = stornoTexte(lk.storniert, o.ergebnisse);   // B1: mit Laborergebnis laut ResultKit eigens und zuerst
+      if (st.mit) hinweise.push('LabelKit/ResultKit: ' + st.mit);
+      hinweise.push(`LabelKit: ${n} stornierte Probe${n === 1 ? '' : 'n'} nicht abgerechnet (${lk.storniert.map(x => (x.nr ? x.nr + ' ' : '') + x.liste).join(', ')}).${st.rest}`); }
     if (lk.rueckstell) hinweise.push(`LabelKit: ${lk.rueckstell} Bohrkern-Rückstellprobe${lk.rueckstell === 1 ? '' : 'n'} (nur gesägt und aufbewahrt) nicht als Analyse gezählt.`);
     if (lk.pn98 && lk.sonstige && lk.pn98OhneProbe) hinweise.push(`LabelKit: ${lk.pn98OhneProbe} von ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'en'} ohne verknüpfte Laborprobe („→ Laborproben anlegen“ im Reiter PN 98) – PN-98-Protokolle selbst werden nicht gezählt. Sind diese Proben von Hand unter „Sonstige“ erfasst, passt es.`);
     if (lk.pn98 && !lk.sonstige) hinweise.push(`LabelKit: ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'e'}, aber keine Proben unter „Sonstige“ – PN-98-Protokolle selbst werden nicht als Analyse gezählt. Sind die Laborproben in LabelKit erfasst?`);
@@ -469,14 +494,15 @@ const AW = (() => {
   const kuerzelOk = k => /^[A-Za-zÄÖÜäöü]{1,6}$/.test(t(k));
   /** Zählt als Foto: Bilddatei, aber keine versteckte Datei („._IMG.jpg“ vom Mac, „.~…“) und keine Zwischendatei von FotoKit („umb-tmp_…“). */
   const fotoDatei = n => /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(str(n)) && !/^(\.|~|umb-tmp_)/i.test(str(n));
-  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, labelkitInfo, zeiten, ortsterminDatum, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
+  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, labelkitInfo, ergebnisInfo, stornoTexte, zeiten, ortsterminDatum, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
 })();
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.17.0';
+const APP_VERSION = '1.17.1';
 const APP_DATE = '2026-11-20';
 const CHANGELOG = [
+  ['1.17.1', '20.11.2026', 'Stornierte Proben: Hat eine in LabelKit stornierte Probe laut ResultKit trotzdem ein Laborergebnis (Übernahme ab ResultKit 2.6.0), steht sie in der Abrechnung in einem eigenen Hinweis vorne und unter „Proben“ hervorgehoben – soll sie berechnet werden, in LabelKit das Storno aufheben. Hat keine einen Wert, sagt der Hinweis das. Stammt die Übernahme aus einer älteren ResultKit-Fassung, steht dort, dass ResultKit es nach „Erneut übernehmen“ zeigt. Abgerechnet wird weiter keine stornierte Probe.'],
   ['1.17.0', '20.11.2026', 'In LabelKit stornierte Proben werden in Titel 2 (Labor) nicht mehr abgerechnet – bisher zählten sie still als Analyse mit. Ein Hinweis in der Abrechnung und eine Zeile unter „Proben“ nennen sie mit Nummer und Art („P2 PAK, P5 Chlorid“); soll eine davon doch berechnet werden, in LabelKit das Storno aufheben. „+ Ortstermin“ trägt jetzt das Datum des Ortstermins aus der Projektzentrale ein, solange es für diesen Tag noch keine eigene Ortstermin-Zeile gibt (sonst wie bisher heute) – das Datum steht im Titel-1-Text der Rechnung. Der Hinweis „Fürs Büro“ sagt jetzt: „Stand speichern“ nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt (dann steht die Seitenzahl fest). Dateiformate unverändert.'],
   ['1.16.1', '11.11.2026', 'Proben für Titel 2 (Labor) nur noch aus der LabelKit-Datei dieses Projekts (Name beginnt mit der Projektnummer, Regel wie LabelKit 5.1) – bisher zählte die neueste beliebige …_Daten.json, auch die eines anderen Projekts. Liegt nur eine fremde Datei da, zählt BelegKit nichts und sagt es. Spektron-Leiste: „Proben ✓“ nur für eine Datei dieses Projekts.'],
   ['1.16.0', '01.11.2026', 'Spektron-Leiste v2: Schritt „BerichtKit · Brandbericht“ bzw. „· Asbestbericht“, wenn BerichtKit sich die Berichtsart des Projekts gemerkt hat (der Link öffnet genau diese); Haken bei BerichtKit nur für einen gespeicherten Bericht dieser Art, dessen Datei noch in „Mitteilungen“ liegt (Projekte ohne BerichtKit-Angaben wie bisher nach dem Dateinamen). Nach dem gespeicherten Bericht heißt der Knopf „Weiter: Ans Büro übergeben →“ (Projektzentrale, eigenes Fenster). „Weiter“ nennt im Tooltip Ziel und Grund. Keine Nummern mehr an den Schritten (✓ reicht), die eigene App ist deutlicher markiert, „Aktuelles Projekt“ im Projektmenü lädt nicht mehr neu. Der Knopf „← Projektzentrale“ ist weg (er öffnete die Projektzentrale im BelegKit-Fenster) – „⌂ Projektzentrale“ in der Leiste öffnet sie im eigenen Fenster.'],
@@ -619,7 +645,7 @@ async function unter(dir, name, anlegen){
    In gespeicherten Ständen stehen weiter die festen Namen („Abrechnung/…“, „Laboraufträge/…“, „Fotos/…“, „_Projekt.json“). */
 async function bereich(proj, b, anlegen){
   const SO = typeof window !== 'undefined' ? window.SpektronOrdner : null;
-  if (!SO) return b === 'projekt' ? proj.dir : unter(proj.dir, { belegkit: ORDNER.abr, labelkit: ORDNER.lab, fotokit: ORDNER.fotos }[b], anlegen);
+  if (!SO) return b === 'projekt' ? proj.dir : unter(proj.dir, { belegkit: ORDNER.abr, labelkit: ORDNER.lab, fotokit: ORDNER.fotos, resultkit: 'Laborergebnisse' }[b], anlegen);
   return (await SO.ort(proj.dir, b, { anlegen: !!anlegen })).dir;
 }
 /** Angezeigter Pfad der BelegKit-Dateien: „Abrechnung“ oder künftig „_Spektron/BelegKit“ (wie gespeichert wird). */
@@ -793,6 +819,12 @@ async function ladeAlles(){
     if (best){ quelle(lab, best.name, ORDNER.lab + '/' + best.name, best); try{ const daten = JSON.parse(await best.text()); N.labelkit = { datei: best, daten, kategorien: AW.kategorien(daten) }; }
       catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); quellen.push(`LabelKit-Datei „${best.name}“ ist nicht lesbar – Titel 2 (Labor) fehlt.`); } }
   }
+  // ResultKit-Übernahme: nur gelesen, für den Storno-Hinweis (B1). Nicht unter den Quellen des Stands – BüroKit kennt ihren Ort
+  // noch nicht (offener Punkt Lauf 3); Abrechnungsmengen hängen nicht daran. Nicht lesbar → wie keine Übernahme, aber als Hinweis,
+  // sobald es stornierte Proben gibt (dann fehlt genau die Auskunft, ob eine davon ein Laborergebnis hat).
+  N.ergebnisse = null;
+  try{ const j = await liesJson(await bereich(proj, 'resultkit', false), '_Ergebnisse.json'); N.ergebnisse = AW.ergebnisInfo(j && j.daten, proj.nr); }
+  catch(e){ N.ergebnisse = null; if (N.labelkit && AW.labelkitInfo(N.labelkit.daten).storniert.length) quellen.push(`ResultKit-Übernahme (_Ergebnisse.json) nicht lesbar – ob eine stornierte Probe ein Laborergebnis hat, ist unbekannt: ${e.message}`); }
   // Fotos: Bilddateien direkt in „Fotos“, ohne die in FotoKit aussortierten
   N.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“', hinweise: [] };
   const fo = await unter(proj.dir, ORDNER.fotos, false);
@@ -1162,7 +1194,7 @@ function zeichneProben(){
     ${L.kategorien.map(k => `<tr><td>${esc(k.label)}${k.ohneBezeichnung ? ` <span class="m">(${k.ohneBezeichnung} ohne Bezeichnung)</span>` : ''}</td><td class="r"><b>${k.anzahl}</b></td>
       <td><select data-kat="${esc(k.key)}" class="${(A.einst.zuordnung || {})[k.key] ? '' : 'offen'}">${posOptionen((A.einst.zuordnung || {})[k.key])}</select></td></tr>`).join('') || '<tr><td colspan="3" class="m">Keine Proben in der Datei.</td></tr>'}
     </tbody></table>
-    ${sto.length ? `<p class="warn">Storniert in LabelKit – nicht gezählt: ${esc(sto.map(x => (x.nr ? x.nr + ' ' : '') + x.liste).join(', '))}. Soll eine davon doch berechnet werden, in LabelKit das Storno aufheben.</p>` : ''}
+    ${sto.length ? (st => `${st.mit ? `<p class="warn" id="stornoMitWert"><b>${esc(st.mit)}</b></p>` : ''}<p class="warn">Storniert in LabelKit – nicht gezählt: ${esc(sto.map(x => (x.nr ? x.nr + ' ' : '') + x.liste).join(', '))}.${esc(st.rest)}</p>`)(AW.stornoTexte(sto, A.ergebnisse)) : ''}
     <p class="m">Gezählt wird jede nicht stornierte Probe einer Liste in LabelKit (eine Analyse je Probe). Die Zuordnung gilt für alle Projekte; fehlt eine Laborposition, unter „Einstellungen“ anlegen.</p></div>`;
   s.querySelector('tbody').onchange = async e => { const sel = e.target.closest('select[data-kat]'); if (!sel) return;
     A.einst.zuordnung = Object.assign({}, A.einst.zuordnung); if (sel.value) A.einst.zuordnung[sel.dataset.kat] = sel.value; else delete A.einst.zuordnung[sel.dataset.kat];
@@ -1192,7 +1224,7 @@ function abrechnungJetzt(){
   const d = A.labelkit ? A.labelkit.daten || {} : {};
   return AW.abrechnung({ einstellungen: A.einst, hinweise: A.ladeHinweise || [],
     zeiten: A.alle.map(f => f.kuerzel === A.kz.toUpperCase() && !f.defekt ? Object.assign({}, f, { eintraege: A.meine }) : f),
-    kategorien: A.labelkit ? A.labelkit.kategorien : [], labelkit: AW.labelkitInfo(d),
+    kategorien: A.labelkit ? A.labelkit.kategorien : [], labelkit: AW.labelkitInfo(d), ergebnisse: A.ergebnisse || null,
     // angekreuzte Berichte, deren Datei es nicht mehr gibt, bleiben sichtbar (Hinweis) statt still zu verschwinden
     berichte: [...A.berichte.map(b => Object.assign({ datei: b.stamm }, pb[b.stamm] || {})),
       ...Object.entries(pb).filter(([k, v]) => v && v.abrechnen && !da.has(k)).map(([k, v]) => Object.assign({}, v, { datei: k, fehlt: true }))],

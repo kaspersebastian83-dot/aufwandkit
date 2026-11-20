@@ -62,6 +62,20 @@ const stand=c=>({berichte:c.A.berichte.map(b=>b.stamm).join(','),seiten:c.abrech
   await Promise.all([alt,neu]);
   assert.deepEqual({...stand(c)},{berichte:'1__Bericht',seiten:10,sv1:3,alle:1,mehrdeutig:false,projekt:'26.0102'},'nach Projektwechsel nur Daten des neuen Projekts');
   assert.equal(c.gezeichnet,1);
+  // B1 (1.17.1): ResultKit-Übernahme lesen – nicht lesbar → Hinweis nur, wenn es stornierte Proben gibt; lesbar → stornierte Probe mit Wert vorne
+  {const Z=await projekt(tmp,'26.0103 Fiktiv Z','26.0103','2',0);await fs.mkdir(path.join(Z,'Laboraufträge'));await fs.mkdir(path.join(Z,'Laborergebnisse'));
+   const lk=sto=>JSON.stringify({proben:[{_nr:1,matrix:'Wischprobe',z2:'A'},{_nr:2,matrix:'Wischprobe',z2:'B',...(sto?{storniert:{am:'2026-11-18',kuerzel:'SK',grund:'x'}}:{})}]});
+   await fs.writeFile(path.join(Z,'Laboraufträge','26.0103_Daten.json'),lk(true));await fs.writeFile(path.join(Z,'Laborergebnisse','_Ergebnisse.json'),'{kaputt');
+   const z=await sitzung(tmp,Z,'26.0103',{});await z.ladeAlles();
+   assert.ok(z.A.ladeHinweise.some(h=>/^ResultKit-Übernahme \(_Ergebnisse\.json\) nicht lesbar – ob eine stornierte Probe ein Laborergebnis hat, ist unbekannt/.test(h)),'kaputte Übernahme gemeldet');
+   assert.equal(z.A.ergebnisse,null);
+   await fs.writeFile(path.join(Z,'Laboraufträge','26.0103_Daten.json'),lk(false));const z2=await sitzung(tmp,Z,'26.0103',{});await z2.ladeAlles();
+   assert.ok(!z2.A.ladeHinweise.some(h=>/ResultKit-Übernahme/.test(h)),'ohne stornierte Probe kein Hinweis');
+   await fs.writeFile(path.join(Z,'Laboraufträge','26.0103_Daten.json'),lk(true));
+   await fs.writeFile(path.join(Z,'Laborergebnisse','_Ergebnisse.json'),JSON.stringify({format:'spektron-ergebnisse',version:1,projekt:'26.0103',uebernommen:'2026-11-19T08:00:00Z',berichte:[],storniertMitWert:['P2']}));
+   const z3=await sitzung(tmp,Z,'26.0103',{});await z3.ladeAlles();
+   assert.match(z3.abrechnungJetzt().hinweise.find(h=>/^LabelKit\/ResultKit/.test(h))||'',/^LabelKit\/ResultKit: P2 PAK ist in LabelKit storniert, hat aber laut ResultKit \(übernommen am 19\.11\.2026\) ein Laborergebnis/);
+   assert.ok(!z3.A.quellDateien.some(q=>/_Ergebnisse/.test(q.pfad)),'nicht unter den Quellen des Stands');}
   console.log('OK Einlesen: doppelt „Neu einlesen“ und Projektwechsel während des Ladens ohne doppelte Stunden/Berichte');
  }finally{await fs.rm(tmp,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exit(1);});

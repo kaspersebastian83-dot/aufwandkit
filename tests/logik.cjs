@@ -314,3 +314,35 @@ console.log('OK stornierte Proben (B1)');
   assert.equal(AW.ortsterminDatum('2026-02-30', [], H), H, 'ungültiges Datum');
 }
 console.log('OK Ortstermin-Datum (B8)');
+
+// Audit Lauf 2, B1 Teil 2 (BelegKit 1.17.1): stornierte Proben mit Laborergebnis laut ResultKit (_Ergebnisse.json, storniertMitWert) hervorheben
+{
+  const st = { am: '2026-11-18T10:00:00Z', kuerzel: 'SK', grund: 'doppelt' };
+  const daten = { proben: [{ _nr: 1, matrix: 'Wischprobe', z2: 'A' }, { _nr: 2, matrix: 'Wischprobe', z2: 'B', storniert: st }], chloridProben: [{ _nr: 5, chloridNr: 5, matrix: 'Wischprobe', z2: 'C', storniert: st }] };
+  const K = AW.kategorien(daten), info = AW.labelkitInfo(daten), erg = o => Object.assign({ format: 'spektron-ergebnisse', version: 1, projekt: '99.9001', uebernommen: '2026-11-19T08:00:00.000Z', berichte: [] }, o);
+  const hin = e => [...AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: K, berichte: [], labelkit: info, ergebnisse: e }).hinweise].filter(h => /storniert/.test(h));
+  // Feld da, P5 mit Wert → eigener Hinweis zuerst, Storno-Hinweis ohne den allgemeinen Satz
+  assert.deepEqual(hin(AW.ergebnisInfo(erg({ storniertMitWert: ['P5'] }), '99.9001')), [
+    'LabelKit/ResultKit: P5 Chlorid ist in LabelKit storniert, hat aber laut ResultKit (übernommen am 19.11.2026) ein Laborergebnis – soll sie berechnet werden, in LabelKit das Storno aufheben.',
+    'LabelKit: 2 stornierte Proben nicht abgerechnet (P2 PAK, P5 Chlorid).']);
+  // zwei mit Wert: Mehrzahl
+  assert.match(hin(AW.ergebnisInfo(erg({ storniertMitWert: ['P2', 'p5'] }), '99.9001'))[0], /^LabelKit\/ResultKit: P2 PAK, P5 Chlorid sind in LabelKit storniert, haben aber laut ResultKit \(übernommen am 19\.11\.2026\) ein Laborergebnis – sollen sie berechnet werden/);
+  // Feld da, leer → keine davon mit Wert
+  assert.deepEqual(hin(AW.ergebnisInfo(erg({ storniertMitWert: [] }), '99.9001')), ['LabelKit: 2 stornierte Proben nicht abgerechnet (P2 PAK, P5 Chlorid). Laut ResultKit (übernommen am 19.11.2026) hat keine davon ein Laborergebnis.']);
+  // Wert für eine Probe, deren Storno inzwischen aufgehoben ist: zählt nicht als storniert mit Wert
+  assert.equal(hin(AW.ergebnisInfo(erg({ storniertMitWert: ['P1'] }), '99.9001')).length, 1);
+  // Feld fehlt (Übernahme vor ResultKit 2.6) → unbekannt, mit Satz zu „Erneut übernehmen“
+  assert.deepEqual(hin(AW.ergebnisInfo(erg({}), '99.9001')), ['LabelKit: 2 stornierte Proben nicht abgerechnet (P2 PAK, P5 Chlorid). Wurde eine davon doch analysiert und soll berechnet werden: in LabelKit das Storno aufheben. Ob eine davon ein Laborergebnis hat, zeigt ResultKit nach „Erneut übernehmen“.']);
+  // keine Übernahme, fremdes Projekt, falsches Format → wie 1.17.0
+  const wie1170 = ['LabelKit: 2 stornierte Proben nicht abgerechnet (P2 PAK, P5 Chlorid). Wurde eine davon doch analysiert und soll berechnet werden: in LabelKit das Storno aufheben.'];
+  assert.deepEqual(hin(null), wie1170);
+  assert.equal(AW.ergebnisInfo(erg({ projekt: '25.0100', storniertMitWert: ['P5'] }), '99.9001'), null, 'Übernahme eines anderen Projekts');
+  assert.deepEqual(hin(AW.ergebnisInfo(erg({ projekt: '25.0100', storniertMitWert: ['P5'] }), '99.9001')), wie1170);
+  assert.equal(AW.ergebnisInfo({ format: 'x', version: 1 }, '99.9001'), null);
+  assert.equal(AW.ergebnisInfo(erg({ version: 2 }), '99.9001'), null, 'neuere Fassung: nicht deuten');
+  assert.equal(AW.ergebnisInfo([], '99.9001'), null);
+  // Mengen unverändert: das Feld ändert nichts an Titel 2
+  const t2 = e => plain(AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: K, berichte: [], labelkit: info, ergebnisse: e }).titel.find(x => x.nr === 2).zeilen.map(z => [z.nr, z.menge]));
+  assert.deepEqual(t2(AW.ergebnisInfo(erg({ storniertMitWert: ['P5'] }), '99.9001')), t2(null));
+}
+console.log('OK stornierte Proben mit Laborergebnis (B1, 1.17.1)');
