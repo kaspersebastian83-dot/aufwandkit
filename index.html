@@ -820,9 +820,11 @@ async function ladeAlles(){
       catch(e){ fehler.push(`„${best.name}“ ist nicht lesbar: ${e.message}`); quellen.push(`LabelKit-Datei „${best.name}“ ist nicht lesbar – Titel 2 (Labor) fehlt.`); } }
   }
   // ResultKit-Übernahme: nur gelesen, für den Storno-Hinweis (B1). Nicht unter den Quellen des Stands – BüroKit kennt ihren Ort
-  // noch nicht (offener Punkt Lauf 3); Abrechnungsmengen hängen nicht daran. Nicht lesbar → wie keine Übernahme.
+  // noch nicht (offener Punkt Lauf 3); Abrechnungsmengen hängen nicht daran. Nicht lesbar → wie keine Übernahme, aber als Hinweis,
+  // sobald es stornierte Proben gibt (dann fehlt genau die Auskunft, ob eine davon ein Laborergebnis hat).
   N.ergebnisse = null;
-  try{ const j = await liesJson(await bereich(proj, 'resultkit', false), '_Ergebnisse.json'); N.ergebnisse = AW.ergebnisInfo(j && j.daten, proj.nr); }catch(e){ N.ergebnisse = null; }
+  try{ const j = await liesJson(await bereich(proj, 'resultkit', false), '_Ergebnisse.json'); N.ergebnisse = AW.ergebnisInfo(j && j.daten, proj.nr); }
+  catch(e){ N.ergebnisse = null; if (N.labelkit && AW.labelkitInfo(N.labelkit.daten).storniert.length) quellen.push(`ResultKit-Übernahme (_Ergebnisse.json) nicht lesbar – ob eine stornierte Probe ein Laborergebnis hat, ist unbekannt: ${e.message}`); }
   // Fotos: Bilddateien direkt in „Fotos“, ohne die in FotoKit aussortierten
   N.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“', hinweise: [] };
   const fo = await unter(proj.dir, ORDNER.fotos, false);
