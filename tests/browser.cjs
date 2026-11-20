@@ -90,6 +90,8 @@ const labelkit = { version: '4.27.0', proben: [...n(56), { id: 99, _nr: 99, matr
     const p = await archiv.getDirectoryHandle(PROJ, { create: true });
     const schreibe = async (dir, nm, data) => { const w = await (await dir.getFileHandle(nm, { create: true })).createWritable(); await w.write(data); await w.close(); };
     await schreibe(await p.getDirectoryHandle('Laboraufträge', { create: true }), '26.0389_16.09.2026_Daten.json', JSON.stringify(labelkit));
+    // ResultKit-Übernahme (B1, 1.17.1): P99 ist in LabelKit storniert, hat aber einen Laborwert
+    await schreibe(await p.getDirectoryHandle('Laborergebnisse', { create: true }), '_Ergebnisse.json', JSON.stringify({ format: 'spektron-ergebnisse', version: 1, projekt: '26.0389', uebernommen: '2026-09-20T08:00:00.000Z', berichte: [], storniertMitWert: ['P99'] }));
     await schreibe(p, '_Projekt.json', JSON.stringify({ format: 'mosaik-projekt', version: 1, objekt: 'EFH, Musterweg 7, 52525 Heinsberg', auftraggeber: 'Beispiel Versicherung AG', schadennummer: 'S-2026-4711', ortstermin: '2026-07-28' }));
     const fo = await p.getDirectoryHandle('Fotos', { create: true });
     for (let i = 1; i <= 6; i++) await schreibe(fo, `26.0389_${String(i).padStart(3, '0')}.jpg`, 'x');
@@ -189,6 +191,7 @@ const labelkit = { version: '4.27.0', proben: [...n(56), { id: 99, _nr: 99, matr
   await page.locator('button[data-tab="proben"]').click();
   assert.match(await page.locator('#seite').textContent(), /PAK – Wischproben\s*56[\s\S]*Chlorid – Wischproben\s*25[\s\S]*Asbest – Materialproben\s*2/);
   assert.match(await page.locator('#seite').textContent(), /Storniert in LabelKit – nicht gezählt: P99 PAK\./, 'stornierte Probe genannt, nicht gezählt (B1)');
+  assert.equal(await page.locator('#stornoMitWert b').textContent(), 'P99 PAK ist in LabelKit storniert, hat aber laut ResultKit (übernommen am 20.09.2026) ein Laborergebnis – soll sie berechnet werden, in LabelKit das Storno aufheben.', 'B1 1.17.1: hervorgehoben');
   await bild(page, '2-proben');
   await page.locator('select[data-kat="asbest-material"]').selectOption('-');
   await page.waitForFunction(() => /Zuordnung gespeichert|Einstellungen gespeichert/.test(document.getElementById('status').textContent));
@@ -220,6 +223,8 @@ const labelkit = { version: '4.27.0', proben: [...n(56), { id: 99, _nr: 99, matr
   assert.match(txt, /3\.002[\s\S]*?3 Berichtsseiten, 5 Fotos/);
   assert.match(txt, /Sätze für 3\.002/);
   assert.match(txt, /LabelKit: 1 stornierte Probe nicht abgerechnet \(P99 PAK\)/, 'B1');
+  assert.match(txt, /LabelKit\/ResultKit: P99 PAK ist in LabelKit storniert, hat aber laut ResultKit \(übernommen am 20\.09\.2026\) ein Laborergebnis/, 'B1 1.17.1');
+  assert.ok(txt.indexOf('LabelKit/ResultKit: P99') < txt.indexOf('LabelKit: 1 stornierte Probe'), 'mit Laborergebnis zuerst');
   assert.match(txt, /Also nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt/, 'B9: Stand speichern nach der Übergabe');
   assert.doesNotMatch(txt, /Asbest/, 'nicht abzurechnen');
   await page.locator('#aPreise').check();
