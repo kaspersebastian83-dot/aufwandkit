@@ -499,9 +499,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.17.1';
+const APP_VERSION = '1.17.2';
 const APP_DATE = '2026-11-20';
 const CHANGELOG = [
+  ['1.17.2', '20.11.2026', 'Anschreiben aus BüroKit („Anschreiben_1. Mitteilung_Auftraggeber.docx“ in „Mitteilungen“) stehen nicht mehr unter „Berichte“ – sie sind keine Berichtsseiten. Ein schon zur Abrechnung angekreuztes Anschreiben bleibt sichtbar (dort den Haken entfernen).'],
   ['1.17.1', '20.11.2026', 'Stornierte Proben: Hat eine in LabelKit stornierte Probe laut ResultKit trotzdem ein Laborergebnis (Übernahme ab ResultKit 2.6.0), steht sie in der Abrechnung in einem eigenen Hinweis vorne und unter „Proben“ hervorgehoben – soll sie berechnet werden, in LabelKit das Storno aufheben. Hat keine einen Wert, sagt der Hinweis das. Stammt die Übernahme aus einer älteren ResultKit-Fassung, steht dort, dass ResultKit es nach „Erneut übernehmen“ zeigt. Abgerechnet wird weiter keine stornierte Probe.'],
   ['1.17.0', '20.11.2026', 'In LabelKit stornierte Proben werden in Titel 2 (Labor) nicht mehr abgerechnet – bisher zählten sie still als Analyse mit. Ein Hinweis in der Abrechnung und eine Zeile unter „Proben“ nennen sie mit Nummer und Art („P2 PAK, P5 Chlorid“); soll eine davon doch berechnet werden, in LabelKit das Storno aufheben. „+ Ortstermin“ trägt jetzt das Datum des Ortstermins aus der Projektzentrale ein, solange es für diesen Tag noch keine eigene Ortstermin-Zeile gibt (sonst wie bisher heute) – das Datum steht im Titel-1-Text der Rechnung. Der Hinweis „Fürs Büro“ sagt jetzt: „Stand speichern“ nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt (dann steht die Seitenzahl fest). Dateiformate unverändert.'],
   ['1.16.1', '11.11.2026', 'Proben für Titel 2 (Labor) nur noch aus der LabelKit-Datei dieses Projekts (Name beginnt mit der Projektnummer, Regel wie LabelKit 5.1) – bisher zählte die neueste beliebige …_Daten.json, auch die eines anderen Projekts. Liegt nur eine fremde Datei da, zählt BelegKit nichts und sagt es. Spektron-Leiste: „Proben ✓“ nur für eine Datei dieses Projekts.'],
@@ -850,7 +851,11 @@ async function ladeAlles(){
     const st = new Map();
     for await (const h of mi.values()){
       if (h.kind !== 'file' || /^(_|~\$)/.test(h.name) || !/\.(docx?|pdf)$/i.test(h.name)) continue;
-      const stamm = h.name.replace(/\.(docx?|pdf)$/i, ''), e = st.get(stamm) || { stamm, dateien: [] }; e.dateien.push(h); st.set(stamm, e);
+      const stamm = h.name.replace(/\.(docx?|pdf)$/i, '');
+      // Anschreiben aus BüroKit („Anschreiben_1. Mitteilung_Auftraggeber.docx“) sind keine Berichte (Audit Lauf 3, C7; Regel wie BüroKit
+      // wordDateien). Ein schon zur Abrechnung angekreuztes bleibt sichtbar, damit sich keine Rechnung still ändert.
+      if (/^anschreiben/i.test(h.name) && !((N.pdatei.berichte || {})[stamm] || {}).abrechnen) continue;
+      const e = st.get(stamm) || { stamm, dateien: [] }; e.dateien.push(h); st.set(stamm, e);
     }
     for (const e of [...st.values()].sort((a, b) => a.stamm.localeCompare(b.stamm, 'de', { numeric: true }))){
       const b = { stamm: e.stamm, dateien: e.dateien.map(h => h.name), word: null, pdf: null, anlage: /_(Anlage|Raumbuch)([-_]|$)/i.test(e.stamm) };
