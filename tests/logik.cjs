@@ -265,10 +265,52 @@ console.log('BelegKit Logik: alle Prüfungen bestanden');
   assert.equal(K.reduce((a, k) => a + k.anzahl, 0), 3, 'Rückstellprobe nicht gezählt');
   assert.ok(!K.some(k => /rückstellprobe/i.test(k.key)));
   const info = AW.labelkitInfo(daten);
-  assert.deepEqual(plain(info), { pn98: 2, sonstige: 4, pn98OhneProbe: 1, rueckstell: 1 });
+  assert.deepEqual(plain(info), { pn98: 2, sonstige: 4, pn98OhneProbe: 1, rueckstell: 1, storniert: [] });
   const h = AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: [], berichte: [], labelkit: info }).hinweise.join('\n');
   assert.match(h, /1 Bohrkern-Rückstellprobe .*nicht als Analyse gezählt/);
   assert.match(h, /1 von 2 PN-98-Protokollen ohne verknüpfte Laborprobe/);
-  assert.deepEqual(plain(AW.labelkitInfo(null)), { pn98: 0, sonstige: 0, pn98OhneProbe: 0, rueckstell: 0 });
+  assert.deepEqual(plain(AW.labelkitInfo(null)), { pn98: 0, sonstige: 0, pn98OhneProbe: 0, rueckstell: 0, storniert: [] });
 }
 console.log('OK Bohrkerne/PN 98');
+
+// Audit Lauf 2, B1: in LabelKit stornierte Proben (storniert = {am, kuerzel, grund}) werden nie abgerechnet – Hinweis nennt sie
+{
+  const st = { am: '2026-11-18T10:00:00Z', kuerzel: 'SK', grund: 'doppelt' };
+  const daten = { projekt: { nr: '99.9001' },
+    proben: [{ _nr: 1, matrix: 'Wischprobe', z2: 'EG Küche' }, { _nr: 2, matrix: 'Wischprobe', z2: 'EG Flur', storniert: st }, { _nr: 3, matrix: 'Wischprobe', z2: 'OG Bad' }],
+    chloridProben: [{ _nr: 4, chloridNr: 4, matrix: 'Wischprobe', z2: 'EG Küche', loeschpulverparameter: true }, { _nr: 5, chloridNr: 5, matrix: 'Wischprobe', z2: 'EG Flur', storniert: st, loeschpulverparameter: true }],
+    asbestProben: [{ _nr: 6, matrix: 'Putz', z2: 'KG', storniert: st }],
+    sonstigeProben: [{ _nr: 8, matrix: 'Feststoff', notiz: 'PCB', z2: 'Keller', storniert: st }, { _nr: 7, matrix: 'Bohrkern', bkStatus: 'R', bkBez: 'B-1', storniert: st }],
+    brandgeruchProben: [{ z2: 'Sofa' }, { z2: 'Vorhang', storniert: st }] };
+  const K = AW.kategorien(daten), k = key => (K.find(x => x.key === key) || {}).anzahl;
+  assert.equal(k('pak-wisch'), 2, 'P2 storniert – nicht gezählt');
+  assert.equal(k('chlorid-wisch'), 1, 'P5 storniert – nicht gezählt');
+  assert.equal(k('chlorid-loeschpulver'), 1, 'auch der Zusatzparameter der stornierten Probe entfällt');
+  assert.equal(k('asbest-material'), undefined, 'einzige Asbestprobe storniert – keine Kategorie');
+  assert.equal(k('sonstige:pcb'), undefined);
+  assert.equal(k('brandgeruch'), 1);
+  const info = AW.labelkitInfo(daten);
+  assert.deepEqual(plain(info.storniert), [{ nr: 'P2', liste: 'PAK' }, { nr: 'P5', liste: 'Chlorid' }, { nr: 'P6', liste: 'Asbest' }, { nr: 'P7', liste: 'Sonstige' }, { nr: 'P8', liste: 'Sonstige' }, { nr: '', liste: 'Brandgeruch' }]);
+  assert.equal(info.rueckstell, 0, 'stornierte Rückstellprobe nicht doppelt im Hinweis');
+  const a = AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: K, berichte: [], labelkit: info });
+  const t2 = a.titel.find(x => x.nr === 2);
+  assert.deepEqual(plain(t2.zeilen.map(z => [z.nr, z.menge])), [['2.001', 2], ['2.008', 1]]);
+  assert.ok(a.hinweise.includes('LabelKit: 6 stornierte Proben nicht abgerechnet (P2 PAK, P5 Chlorid, P6 Asbest, P7 Sonstige, P8 Sonstige, Brandgeruch). Wurde eine davon doch analysiert und soll berechnet werden: in LabelKit das Storno aufheben.'));
+  // ohne Storno: kein Hinweis, Mengen wie bisher
+  const ohne = AW.abrechnung({ einstellungen: E, zeiten: [], kategorien: AW.kategorien({ proben: [{ _nr: 1, matrix: 'Wischprobe', z2: 'A' }] }), berichte: [], labelkit: AW.labelkitInfo({ proben: [{ _nr: 1 }] }) });
+  assert.ok(!ohne.hinweise.some(h => /storniert/.test(h)));
+}
+console.log('OK stornierte Proben (B1)');
+
+// Audit Lauf 2, B8: „+ Ortstermin“ – Datum des Ortstermins aus der Projektzentrale, solange es dafür keine eigene Ortstermin-Zeile gibt
+{
+  const H = '2026-11-20';
+  assert.equal(AW.ortsterminDatum('2026-11-18', [], H), '2026-11-18');
+  assert.equal(AW.ortsterminDatum('2026-11-18', [{ art: 'buero', datum: '2026-11-18' }], H), '2026-11-18', 'Auswertung am selben Tag zählt nicht');
+  assert.equal(AW.ortsterminDatum('2026-11-18', [{ art: 'ort', datum: '2026-11-18' }], H), H, 'schon erfasst → heute');
+  assert.equal(AW.ortsterminDatum('', [], H), H);
+  assert.equal(AW.ortsterminDatum(undefined, [], H), H);
+  assert.equal(AW.ortsterminDatum('18.11.2026', [], H), H, 'kein JJJJ-MM-TT');
+  assert.equal(AW.ortsterminDatum('2026-02-30', [], H), H, 'ungültiges Datum');
+}
+console.log('OK Ortstermin-Datum (B8)');

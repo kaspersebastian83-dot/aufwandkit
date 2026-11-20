@@ -251,12 +251,23 @@ const AW = (() => {
   /* Bohrkern-Segment „R“ (LabelKit): nur gesägt und aufbewahrt – keine Analyse, wird nicht gezählt. */
   const RUECKSTELLPROBE = 'Rückstellprobe – nicht analysieren';
   const rueckstell = p => !!p && p.matrix === 'Bohrkern' && (t(p.bkStatus).toUpperCase() === 'R' || t(p.notiz) === RUECKSTELLPROBE);
-  /** Kennzahlen der LabelKit-Datei für Hinweise: PN-98-Protokolle, sonstige Proben, PN-98 ohne verknüpfte Laborprobe, Rückstellproben. */
+  /* In LabelKit stornierte Probe (ab LabelKit 4.49: storniert = {am, kuerzel, grund}): keine Probe mehr, die Nummer bleibt vergeben.
+     Wird nie abgerechnet (Audit Lauf 2, B1) – wie ResultKit, PlanKit, FotoKit und BerichtKit sie weglassen; jeder wahre Wert zählt als storniert. */
+  const storniert = p => !!p && !!p.storniert;
+  /** Listen der LabelKit-Datei, aus denen Titel 2 zählt, mit dem Namen für Hinweise. */
+  const LK_LISTEN = [['proben', 'PAK'], ['chloridProben', 'Chlorid'], ['asbestProben', 'Asbest'], ['sonstigeProben', 'Sonstige'], ['brandgeruchProben', 'Brandgeruch']];
+  /** Probennummer wie LabelKit (_nr, ältere Chlorid-Dateien chloridNr) – nur für Hinweise. */
+  const probeNr = p => { for (const v of [p._nr, p.chloridNr]){ const n = Number(v); if (Number.isSafeInteger(n) && n > 0) return 'P' + n; } return ''; };
+  /** Kennzahlen der LabelKit-Datei für Hinweise: PN-98-Protokolle, sonstige Proben, PN-98 ohne verknüpfte Laborprobe, Rückstellproben,
+      stornierte Proben ([{nr: 'P2', liste: 'PAK'}], in der Reihenfolge der Nummern). */
   function labelkitInfo(daten){
     const d = daten && typeof daten === 'object' ? daten : {}, L = n => Array.isArray(d[n]) ? d[n].filter(p => p && typeof p === 'object') : [];
     const quellen = new Set(L('sonstigeProben').map(p => t(p.pn98Quelle)).filter(Boolean));
+    const sto = LK_LISTEN.flatMap(([n, liste]) => L(n).filter(storniert).map(p => ({ nr: probeNr(p), liste })))
+      .sort((a, b) => (Number(a.nr.slice(1)) || 1e9) - (Number(b.nr.slice(1)) || 1e9));
     return { pn98: L('pn98Proben').length, sonstige: L('sonstigeProben').length,
-      pn98OhneProbe: L('pn98Proben').filter(p => !quellen.has(t(p.id))).length, rueckstell: L('sonstigeProben').filter(rueckstell).length };
+      pn98OhneProbe: L('pn98Proben').filter(p => !quellen.has(t(p.id))).length, rueckstell: L('sonstigeProben').filter(p => rueckstell(p) && !storniert(p)).length,
+      storniert: sto };
   }
   function kategorien(daten){
     const d = daten && typeof daten === 'object' ? daten : {}, k = new Map();
@@ -264,7 +275,7 @@ const AW = (() => {
     const bezeichnet = p => p.matrix === 'Bohrkern' ? !!(t(p.bkBez) || t(p.z2) || t(p.z3)) : !!(t(p.z2) || t(p.z3));
     const add = (key, label, p) => { const e = k.get(key) || { key, label, anzahl: 0, ohneBezeichnung: 0 }; e.anzahl++;
       if (p && !bezeichnet(p)) e.ohneBezeichnung++; k.set(key, e); };
-    const L = n => Array.isArray(d[n]) ? d[n] : [];
+    const L = n => (Array.isArray(d[n]) ? d[n] : []).filter(p => !storniert(p));   // stornierte Proben zählen nie (B1)
     L('proben').forEach(p => p.matrix === 'Wischprobe' ? add('pak-wisch', 'PAK – Wischproben', p) : add('pak-material', 'PAK – Material' + (t(p.matrix) ? ' (' + t(p.matrix) + ')' : ''), p));
     L('chloridProben').forEach(p => {
       p.matrix === 'Wischprobe' ? add('chlorid-wisch', 'Chlorid – Wischproben', p) : add('chlorid-material', 'Chlorid – Material', p);
@@ -312,6 +323,14 @@ const AW = (() => {
     }
     for (const [tag, wer] of Object.entries(kmJeTag)) if (wer.size > 1) hinweise.push(`${datumDe(tag)}: km von ${[...wer].join(' und ')} – zwei Fahrzeuge? Bei Fahrgemeinschaft trägt nur der Fahrer km ein.`);
     return { sum, hinweise };
+  }
+  /** Datum für „+ Ortstermin“ (Audit Lauf 2, B8): der Ortstermin aus der Projektzentrale (`_Projekt.json`, JJJJ-MM-TT), solange es dafür
+      noch keine eigene Ortstermin-Zeile gibt – Zeiten werden oft Tage später eingetragen, und das Datum steht im Titel-1-Text der Rechnung.
+      Sonst (kein gültiger Ortstermin oder schon erfasst) heute. */
+  function ortsterminDatum(ortstermin, eintraege, heute){
+    const o = t(ortstermin);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(o) || !Number.isFinite(Date.parse(o)) || new Date(o).toISOString().slice(0, 10) !== o) return heute;
+    return (eintraege || []).some(e => e && e.art !== 'buero' && t(e.datum) === o) ? heute : o;
   }
   function datumDe(iso){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t(iso)); return m ? `${m[3]}.${m[2]}.${m[1]}` : t(iso); }
   /** „am 28.07. und 21.08.2026“ / „am 28.07.2026“ / über Jahresgrenze voll ausgeschrieben. */
@@ -382,6 +401,8 @@ const AW = (() => {
     }
     for (const [key, e] of jePos) zeile(key, e.menge, 'LabelKit: ' + e.teile.join(', '));
     const lk = o.labelkit || {};
+    if (lk.storniert && lk.storniert.length){ const n = lk.storniert.length;
+      hinweise.push(`LabelKit: ${n} stornierte Probe${n === 1 ? '' : 'n'} nicht abgerechnet (${lk.storniert.map(x => (x.nr ? x.nr + ' ' : '') + x.liste).join(', ')}). Wurde eine davon doch analysiert und soll berechnet werden: in LabelKit das Storno aufheben.`); }
     if (lk.rueckstell) hinweise.push(`LabelKit: ${lk.rueckstell} Bohrkern-Rückstellprobe${lk.rueckstell === 1 ? '' : 'n'} (nur gesägt und aufbewahrt) nicht als Analyse gezählt.`);
     if (lk.pn98 && lk.sonstige && lk.pn98OhneProbe) hinweise.push(`LabelKit: ${lk.pn98OhneProbe} von ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'en'} ohne verknüpfte Laborprobe („→ Laborproben anlegen“ im Reiter PN 98) – PN-98-Protokolle selbst werden nicht gezählt. Sind diese Proben von Hand unter „Sonstige“ erfasst, passt es.`);
     if (lk.pn98 && !lk.sonstige) hinweise.push(`LabelKit: ${lk.pn98} PN-98-Protokoll${lk.pn98 === 1 ? '' : 'e'}, aber keine Proben unter „Sonstige“ – PN-98-Protokolle selbst werden nicht als Analyse gezählt. Sind die Laborproben in LabelKit erfasst?`);
@@ -448,14 +469,15 @@ const AW = (() => {
   const kuerzelOk = k => /^[A-Za-zÄÖÜäöü]{1,6}$/.test(t(k));
   /** Zählt als Foto: Bilddatei, aber keine versteckte Datei („._IMG.jpg“ vom Mac, „.~…“) und keine Zwischendatei von FotoKit („umb-tmp_…“). */
   const fotoDatei = n => /\.(jpe?g|png|webp|gif|bmp|tiff?|heic|heif)$/i.test(str(n)) && !/^(\.|~|umb-tmp_)/i.test(str(n));
-  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, labelkitInfo, zeiten, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
+  return { STANDARD, TITEL, ARTEN, ROLLEN, einstellungen, kategorien, labelkitInfo, zeiten, ortsterminDatum, terminText, datumDe, appXml, wordSeitenPlausibel, pdfSeiten, abrechnung, tsv, csv, dateiname, zahl, fmt, euro, geld, kuerzelOk, fotoDatei };
 })();
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.16.1';
-const APP_DATE = '2026-11-01';
+const APP_VERSION = '1.17.0';
+const APP_DATE = '2026-11-20';
 const CHANGELOG = [
+  ['1.17.0', '20.11.2026', 'In LabelKit stornierte Proben werden in Titel 2 (Labor) nicht mehr abgerechnet – bisher zählten sie still als Analyse mit. Ein Hinweis in der Abrechnung und eine Zeile unter „Proben“ nennen sie mit Nummer und Art („P2 PAK, P5 Chlorid“); soll eine davon doch berechnet werden, in LabelKit das Storno aufheben. „+ Ortstermin“ trägt jetzt das Datum des Ortstermins aus der Projektzentrale ein, solange es für diesen Tag noch keine eigene Ortstermin-Zeile gibt (sonst wie bisher heute) – das Datum steht im Titel-1-Text der Rechnung. Der Hinweis „Fürs Büro“ sagt jetzt: „Stand speichern“ nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt (dann steht die Seitenzahl fest). Dateiformate unverändert.'],
   ['1.16.1', '11.11.2026', 'Proben für Titel 2 (Labor) nur noch aus der LabelKit-Datei dieses Projekts (Name beginnt mit der Projektnummer, Regel wie LabelKit 5.1) – bisher zählte die neueste beliebige …_Daten.json, auch die eines anderen Projekts. Liegt nur eine fremde Datei da, zählt BelegKit nichts und sagt es. Spektron-Leiste: „Proben ✓“ nur für eine Datei dieses Projekts.'],
   ['1.16.0', '01.11.2026', 'Spektron-Leiste v2: Schritt „BerichtKit · Brandbericht“ bzw. „· Asbestbericht“, wenn BerichtKit sich die Berichtsart des Projekts gemerkt hat (der Link öffnet genau diese); Haken bei BerichtKit nur für einen gespeicherten Bericht dieser Art, dessen Datei noch in „Mitteilungen“ liegt (Projekte ohne BerichtKit-Angaben wie bisher nach dem Dateinamen). Nach dem gespeicherten Bericht heißt der Knopf „Weiter: Ans Büro übergeben →“ (Projektzentrale, eigenes Fenster). „Weiter“ nennt im Tooltip Ziel und Grund. Keine Nummern mehr an den Schritten (✓ reicht), die eigene App ist deutlicher markiert, „Aktuelles Projekt“ im Projektmenü lädt nicht mehr neu. Der Knopf „← Projektzentrale“ ist weg (er öffnete die Projektzentrale im BelegKit-Fenster) – „⌂ Projektzentrale“ in der Leiste öffnet sie im eigenen Fenster.'],
   ['1.15.0', '30.10.2026', 'Spektron-Leiste: neuer Schritt „BerichtKit“ (Asbest-Untersuchungsbericht) zwischen PlanKit und BelegKit – Haken, sobald ein Bericht in „Mitteilungen“ liegt. Gemeinsames Modul spektron-ordner.js: neuer Bereich „BerichtKit“ (Angaben zum Bericht in „_Spektron/BerichtKit“).'],
@@ -1029,7 +1051,7 @@ function zeichneZeiten(){
     <div class="zeile" style="margin-top:10px"><button class="primary" id="zNeu">+ Ortstermin</button><button id="zNeuB">+ Auswertung / Bericht</button><button id="zFassungen">Zeitfassungen prüfen</button><button id="zRetry">Erneut speichern</button>
       <span class="m">Fahrzeit gehört zum Ortstermin. km trägt nur der Fahrer ein. Übernachtung: Anzahl und Betrag lt. Beleg.</span></div></div>
     <div class="karte" id="kollegen"></div>`;
-  const neu = art => { const letzt = A.meine[A.meine.length - 1]; A.meine.push({ id: 'z' + crypto.randomUUID(), datum: art === 'ort' ? heuteIso() : (letzt && letzt.datum) || heuteIso(), art, rolle: personRolle(kz), stunden: '', km: '', spesen: '', hotelAnzahl: '', hotelBetrag: '', notiz: '' }); zeichneZeiten(); const r = $('zRows').lastElementChild; r && r.querySelector('[data-f="stunden"]').focus(); meineGeaendert(); };
+  const neu = art => { const letzt = A.meine[A.meine.length - 1]; A.meine.push({ id: 'z' + crypto.randomUUID(), datum: art === 'ort' ? AW.ortsterminDatum((A.pj || {}).ortstermin, A.meine, heuteIso()) : (letzt && letzt.datum) || heuteIso(), art, rolle: personRolle(kz), stunden: '', km: '', spesen: '', hotelAnzahl: '', hotelBetrag: '', notiz: '' }); zeichneZeiten(); const r = $('zRows').lastElementChild; r && r.querySelector('[data-f="stunden"]').focus(); meineGeaendert(); };
   $('zNeu').onclick = () => neu('ort'); $('zNeuB').onclick = () => neu('buero');
   const tb = $('zRows');
   tb.oninput = tb.onchange = e => { const el = e.target, i = +el.closest('tr').dataset.i, f = el.dataset.f; if (!f || A.meine[i][f] === el.value) return; A.meine[i][f] = el.value;   /* „change“ beim Verlassen eines schon gespeicherten Felds löst keine zweite Speicherung aus */ if (f === 'art') zeichneZeiten(); meineGeaendert(); };
@@ -1134,12 +1156,14 @@ function fremdLabelkit(){
 function zeichneProben(){
   const s = $('seite'), L = A.labelkit;
   if (!L){ s.innerHTML = `<div class="karte"><h2>Proben</h2><p>${fremdLabelkit() ? esc(fremdLabelkit()) + ' Titel 2 (Labor) bleibt leer.' : `Keine LabelKit-Projektdatei (<code>…_Daten.json</code>) in „${ORDNER.lab}“.`} Proben werden in LabelKit erfasst und gespeichert.</p></div>`; return; }
+  const sto = AW.labelkitInfo(L.daten).storniert;
   s.innerHTML = `<div class="karte"><div class="kopfzeile"><h2>Proben aus LabelKit</h2><span class="m"><code>${esc(ORDNER.lab)}/${esc(L.datei.name)}</code> · Stand ${esc(zeitDe(L.datei.lastModified))}</span></div>
     <table class="liste"><thead><tr><th>Art der Probe / Analyse</th><th class="r">Anzahl</th><th>Position in der Rechnung</th></tr></thead><tbody>
     ${L.kategorien.map(k => `<tr><td>${esc(k.label)}${k.ohneBezeichnung ? ` <span class="m">(${k.ohneBezeichnung} ohne Bezeichnung)</span>` : ''}</td><td class="r"><b>${k.anzahl}</b></td>
       <td><select data-kat="${esc(k.key)}" class="${(A.einst.zuordnung || {})[k.key] ? '' : 'offen'}">${posOptionen((A.einst.zuordnung || {})[k.key])}</select></td></tr>`).join('') || '<tr><td colspan="3" class="m">Keine Proben in der Datei.</td></tr>'}
     </tbody></table>
-    <p class="m">Gezählt wird jede Probe einer Liste in LabelKit (eine Analyse je Probe). Die Zuordnung gilt für alle Projekte; fehlt eine Laborposition, unter „Einstellungen“ anlegen.</p></div>`;
+    ${sto.length ? `<p class="warn">Storniert in LabelKit – nicht gezählt: ${esc(sto.map(x => (x.nr ? x.nr + ' ' : '') + x.liste).join(', '))}. Soll eine davon doch berechnet werden, in LabelKit das Storno aufheben.</p>` : ''}
+    <p class="m">Gezählt wird jede nicht stornierte Probe einer Liste in LabelKit (eine Analyse je Probe). Die Zuordnung gilt für alle Projekte; fehlt eine Laborposition, unter „Einstellungen“ anlegen.</p></div>`;
   s.querySelector('tbody').onchange = async e => { const sel = e.target.closest('select[data-kat]'); if (!sel) return;
     A.einst.zuordnung = Object.assign({}, A.einst.zuordnung); if (sel.value) A.einst.zuordnung[sel.dataset.kat] = sel.value; else delete A.einst.zuordnung[sel.dataset.kat];
     sel.classList.toggle('offen', !sel.value); await speichereZuordnung(sel.dataset.kat, sel.value).catch(x => status('Nicht gespeichert: ' + x.message, 'err')); };
@@ -1188,7 +1212,7 @@ function zeichneAbrechnung(){
     <div class="zeile keindruck" style="margin-top:12px"><button class="primary" id="aKopie" title="Position, Text, Menge, Einheit – zum Einfügen in das Rechnungsprogramm oder Excel">⧉ Kopieren</button>
       <button id="aDruck">🖨 Drucken</button><button id="aStand" title="Abrechnung mit Prüfsummen aller Quellen in „Abrechnung“ ablegen (nie überschreibend) – das Büro schreibt die Rechnung nach dem neuesten Stand">💾 Stand speichern</button>
       <label class="m"><input type="checkbox" id="aPreise" ${P ? 'checked' : ''}> Preise als Vorschau zeigen</label></div>
-    <p class="buero-hinweis keindruck">📨 <b>Fürs Büro:</b> Das Büro schreibt die Rechnung nach dem <b>zuletzt gespeicherten Stand</b> (BüroKit → „Abrechnung“). Also vor „Ans Büro“ und nach jeder Änderung an Zeiten, Proben, Berichten oder Fotos <b>„💾 Stand speichern“</b>.${A.letzterStand ? ` <span class="m">Zuletzt gespeichert: ${esc(A.letzterStand)}</span>` : ' <span class="m">Noch kein Stand gespeichert.</span>'}</p>
+    <p class="buero-hinweis keindruck">📨 <b>Fürs Büro:</b> Das Büro schreibt die Rechnung nach dem <b>zuletzt gespeicherten Stand</b> (BüroKit → „Abrechnung“). Also nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt (dann steht die Seitenzahl fest), und nach jeder späteren Änderung an Zeiten, Proben, Berichten oder Fotos <b>„💾 Stand speichern“</b>.${A.letzterStand ? ` <span class="m">Zuletzt gespeichert: ${esc(A.letzterStand)}</span>` : ' <span class="m">Noch kein Stand gespeichert.</span>'}</p>
     <p class="m keindruck">Die Rechnung selbst entsteht im Rechnungsprogramm. Preise hier nur zur Kontrolle (Sätze unter „Einstellungen“).</p></div>`;
   $('aPreise').onchange = e => { A.preise = e.target.checked; try{ localStorage.setItem('aufwandkit-preise', A.preise ? '1' : '0'); }catch(x){} zeichneAbrechnung(); };
   $('aDruck').onclick = () => window.print();
@@ -1285,10 +1309,10 @@ function meldung(art, html){ const b = $('banner'); b.className = 'show ' + art;
 function versteckeMeldung(){ $('banner').className = ''; $('banner').innerHTML = ''; }
 function info(){
   $('dlg').innerHTML = `<h3>${APP_NAME} ${APP_VERSION}</h3><p class="hilfe-verweis">Schritt für Schritt mit Übungen: <a href="../aidkit/#app-belegkit" target="aidkit" rel="noopener">📘 Handbuch – BelegKit</a></p><div class="m"><p>Erfasst, was in die Rechnung gehört: Zeiten, km, Spesen, Übernachtungen je Kollege, Proben aus LabelKit, Berichtsseiten und Fotos. Die Rechnung selbst entsteht im Rechnungsprogramm.</p>
-    <ol><li><b>Meine Zeiten:</b> Kürzel eintragen, je Ortstermin Stunden (inkl. Fahrt), km (nur der Fahrer), Spesentage und Übernachtung mit Betrag lt. Beleg; Auswertung und Bericht als eigene Einträge. 🗺 neben den km öffnet die Route in Google Maps (Büro → Objekt → Büro), der Link bleibt am Eintrag gespeichert.</li>
-    <li><b>Proben:</b> jede Probenart einmal einer Rechnungsposition zuordnen (gilt danach für alle Projekte).</li>
+    <ol><li><b>Meine Zeiten:</b> Kürzel eintragen, je Ortstermin Stunden (inkl. Fahrt; „+ Ortstermin“ nimmt das Datum des Ortstermins aus der Projektzentrale, solange es dafür noch keine Zeile gibt), km (nur der Fahrer), Spesentage und Übernachtung mit Betrag lt. Beleg; Auswertung und Bericht als eigene Einträge. 🗺 neben den km öffnet die Route in Google Maps (Büro → Objekt → Büro), der Link bleibt am Eintrag gespeichert.</li>
+    <li><b>Proben:</b> jede Probenart einmal einer Rechnungsposition zuordnen (gilt danach für alle Projekte). In LabelKit stornierte Proben werden nie gezählt.</li>
     <li><b>Bericht &amp; Fotos:</b> abzurechnende Berichte ankreuzen, Seitenzahl bestätigen.</li>
-    <li><b>Abrechnung:</b> Hinweise klären, „Kopieren“ und ins Rechnungsprogramm einfügen, „Stand speichern“.</li></ol>
+    <li><b>Abrechnung:</b> Hinweise klären, „Kopieren“ und ins Rechnungsprogramm einfügen, „Stand speichern“ – nach „Ans Büro übergeben“, sobald die PDF des Büros da ist.</li></ol>
     <table>${CHANGELOG.map(([v, d, t]) => `<tr><td>${v}<br><small>${d}</small></td><td>${esc(t)}</td></tr>`).join('')}</table>
     <p>Dateien: <code>Aufwand_&lt;Kürzel&gt;.json</code> (je Person), <code>_Abrechnung.json</code> (Berichte) und die JSON der Stände <code>&lt;Nr&gt;_Aufwand_&lt;Datum&gt;.json</code> liegen bei Spektron-Projekten in <code>_Spektron/BelegKit</code>, sonst in <code>Abrechnung</code>; die CSV der Stände immer sichtbar in <code>Abrechnung</code>. Einstellungen <code>${EINST_DATEI}</code> im Archivordner.</p></div>
     <div class="btns"><button id="dlgZu">Schließen</button></div>`;

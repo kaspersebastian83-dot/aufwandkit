@@ -32,7 +32,8 @@ function docx(){
 }
 const pdf = [...Buffer.from('%PDF-1.7\n1 0 obj<</Type /Pages /Count 3>>endobj 2 0 obj<</Type /Page>>endobj 3 0 obj<</Type /Page>>endobj 4 0 obj<</Type /Page>>endobj\n%%EOF')];
 const n = (k, o) => Array.from({ length: k }, (_, i) => Object.assign({ id: i, z2: 'P' + i, matrix: 'Wischprobe' }, o));
-const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbestProben: n(2, { matrix: 'Putz' }) };
+// dazu eine in LabelKit stornierte PAK-Probe (P99): zählt nie (Audit Lauf 2, B1) – alle Mengen und Beträge unten bleiben gleich
+const labelkit = { version: '4.27.0', proben: [...n(56), { id: 99, _nr: 99, matrix: 'Wischprobe', z2: 'EG Flur', storniert: { am: '2026-09-17T08:00:00Z', kuerzel: 'SK', grund: 'doppelt' } }], chloridProben: n(25), asbestProben: n(2, { matrix: 'Putz' }) };
 
 (async () => {
   const server = http.createServer((req, res) => {
@@ -130,6 +131,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   await page.locator('#kzEin').fill('sk'); await page.locator('#kzOk').click();
   await page.locator('#zNeu').click();
   const z = (i, f) => page.locator(`#zRows tr[data-i="${i}"] [data-f="${f}"]`);
+  assert.equal(await z(0, 'datum').inputValue(), '2026-07-28', '„+ Ortstermin“: Datum des Ortstermins aus der Projektzentrale (B8)');
   await z(0, 'datum').fill('2026-07-28'); await z(0, 'stunden').fill('17'); await z(0, 'km').fill('1425'); await z(0, 'spesen').fill('1');
   await page.locator('#zNeuB').click();
   await z(1, 'stunden').fill('7');
@@ -186,6 +188,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   // Proben: Kategorien und Zuordnung (Asbest → nicht abrechnen) – landet in den gemeinsamen Einstellungen
   await page.locator('button[data-tab="proben"]').click();
   assert.match(await page.locator('#seite').textContent(), /PAK – Wischproben\s*56[\s\S]*Chlorid – Wischproben\s*25[\s\S]*Asbest – Materialproben\s*2/);
+  assert.match(await page.locator('#seite').textContent(), /Storniert in LabelKit – nicht gezählt: P99 PAK\./, 'stornierte Probe genannt, nicht gezählt (B1)');
   await bild(page, '2-proben');
   await page.locator('select[data-kat="asbest-material"]').selectOption('-');
   await page.waitForFunction(() => /Zuordnung gespeichert|Einstellungen gespeichert/.test(document.getElementById('status').textContent));
@@ -216,6 +219,8 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.match(txt, /2\.008[\s\S]*?25/);
   assert.match(txt, /3\.002[\s\S]*?3 Berichtsseiten, 5 Fotos/);
   assert.match(txt, /Sätze für 3\.002/);
+  assert.match(txt, /LabelKit: 1 stornierte Probe nicht abgerechnet \(P99 PAK\)/, 'B1');
+  assert.match(txt, /Also nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt/, 'B9: Stand speichern nach der Übergabe');
   assert.doesNotMatch(txt, /Asbest/, 'nicht abzurechnen');
   await page.locator('#aPreise').check();
   assert.match(await page.locator('#seite').textContent(), /2\.465,00 €/, '17 × 145');
@@ -257,6 +262,7 @@ const labelkit = { version: '4.27.0', proben: n(56), chloridProben: n(25), asbes
   assert.match(await page.locator('#seite h2').first().textContent(), /Meine Zeiten · AB/);
   assert.equal(await page.locator('#zRows tr').count(), 0);
   await page.locator('#zNeu').click();
+  assert.equal(await z(0, 'datum').inputValue(), '2026-07-28', 'AB hat noch keine Zeile für den Ortstermin (B8)');
   await z(0, 'datum').fill('2026-07-28'); await z(0, 'rolle').selectOption('Probenehmer'); await z(0, 'stunden').fill('4'); await z(0, 'km').fill('1425');
   await page.waitForFunction(() => /Aufwand_AB\.json/.test(document.getElementById('status').textContent));
   mein = JSON.parse(await lies('§/Abrechnung/Aufwand_SK.json'));
