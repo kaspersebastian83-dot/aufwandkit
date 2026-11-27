@@ -843,7 +843,9 @@ async function ladeAlles(){
           for await (const x of h.values()){
             if (x.kind === 'file' && AW.fotoDatei(x.name)) hier.push(h.name + '/' + x.name);
             else if (x.kind === 'directory' && !/^[_.]/.test(x.name)){
-              let t = 0; try{ for await (const y of x.values()) if (y.kind === 'file' && AW.fotoDatei(y.name)) t++; }catch(e){}
+              let t = 0;
+              try{ for await (const y of x.values()) if (y.kind === 'file' && AW.fotoDatei(y.name)) t++; }
+              catch(e){ tieferHier.push(`${h.name}/${x.name} (nicht lesbar)`); continue; }   // Codex #47: nicht still – ob dort Bilder liegen, ist unbekannt
               if (t) tieferHier.push(`${h.name}/${x.name} (${t})`);
             }
           }
