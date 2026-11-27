@@ -499,9 +499,10 @@ const AW = (() => {
 /* AUFWAND-LOGIK-ENDE */
 /* ---------- Oberfläche ---------- */
 const APP_NAME = 'BelegKit';   // Anzeigename (früher „AufwandKit“) – Webadresse, Dateinamen und gespeicherte Einstellungen behalten den alten Namen
-const APP_VERSION = '1.17.2';
+const APP_VERSION = '1.18.0';
 const APP_DATE = '2026-11-20';
 const CHANGELOG = [
+  ['1.18.0', '27.11.2026', 'Fotos in Unterordnern von „Fotos“ zählen mit (zu FotoKit 2.7.0, dort bleiben die Fotos in ihren Unterordnern, „Fotos übernehmen“ gibt es nicht mehr): gezählt werden die Bilder direkt in „Fotos“ und in jedem Unterordner davon – eine Ebene, Ordner mit „_“ oder „.“ vorn nicht (also nicht „_aussortiert“, „_Originale“) –, ohne die in FotoKit aussortierten. Bisher zählten nur die Fotos direkt in „Fotos“; für Unterordner stand nur ein Hinweis. Bilder in tieferen Ordnern zeigt FotoKit nicht – sie zählen nicht, ein Hinweis nennt sie.'],
   ['1.17.2', '20.11.2026', 'Anschreiben aus BüroKit („Anschreiben_1. Mitteilung_Auftraggeber.docx“ in „Mitteilungen“) stehen nicht mehr unter „Berichte“ – sie sind keine Berichtsseiten. Ein schon zur Abrechnung angekreuztes Anschreiben bleibt sichtbar (dort den Haken entfernen).'],
   ['1.17.1', '20.11.2026', 'Stornierte Proben: Hat eine in LabelKit stornierte Probe laut ResultKit trotzdem ein Laborergebnis (Übernahme ab ResultKit 2.6.0), steht sie in der Abrechnung in einem eigenen Hinweis vorne und unter „Proben“ hervorgehoben – soll sie berechnet werden, in LabelKit das Storno aufheben. Hat keine einen Wert, sagt der Hinweis das. Stammt die Übernahme aus einer älteren ResultKit-Fassung, steht dort, dass ResultKit es nach „Erneut übernehmen“ zeigt. Abgerechnet wird weiter keine stornierte Probe.'],
   ['1.17.0', '20.11.2026', 'In LabelKit stornierte Proben werden in Titel 2 (Labor) nicht mehr abgerechnet – bisher zählten sie still als Analyse mit. Ein Hinweis in der Abrechnung und eine Zeile unter „Proben“ nennen sie mit Nummer und Art („P2 PAK, P5 Chlorid“); soll eine davon doch berechnet werden, in LabelKit das Storno aufheben. „+ Ortstermin“ trägt jetzt das Datum des Ortstermins aus der Projektzentrale ein, solange es für diesen Tag noch keine eigene Ortstermin-Zeile gibt (sonst wie bisher heute) – das Datum steht im Titel-1-Text der Rechnung. Der Hinweis „Fürs Büro“ sagt jetzt: „Stand speichern“ nach „Ans Büro übergeben“, sobald die PDF des Büros in „Mitteilungen“ liegt (dann steht die Seitenzahl fest). Dateiformate unverändert.'],
@@ -826,23 +827,38 @@ async function ladeAlles(){
   N.ergebnisse = null;
   try{ const j = await liesJson(await bereich(proj, 'resultkit', false), '_Ergebnisse.json'); N.ergebnisse = AW.ergebnisInfo(j && j.daten, proj.nr); }
   catch(e){ N.ergebnisse = null; if (N.labelkit && AW.labelkitInfo(N.labelkit.daten).storniert.length) quellen.push(`ResultKit-Übernahme (_Ergebnisse.json) nicht lesbar – ob eine stornierte Probe ein Laborergebnis hat, ist unbekannt: ${e.message}`); }
-  // Fotos: Bilddateien direkt in „Fotos“, ohne die in FotoKit aussortierten
+  /* Fotos: Bilddateien direkt in „Fotos“ und – ab 1.18.0, wie FotoKit 2.7.0 – in jedem Unterordner davon (eine Ebene; Ordner mit „_“
+     oder „.“ vorn nicht, also nicht _aussortiert, _Originale), ohne die in FotoKit aussortierten („Weg“). FotoKit schlüsselt Fotos im
+     Unterordner als „Ordner/Datei“. Bilder in tieferen Ordnern zeigt FotoKit nicht – sie zählen nicht, ein Hinweis nennt sie. */
   N.fotos = { anzahl: 0, quelle: 'kein Ordner „Fotos“', hinweise: [] };
   const fo = await unter(proj.dir, ORDNER.fotos, false);
   if (fo){
-    const namen = [], unterOrdner = [];
+    const namen = [], unterOrdner = [], tiefer = [], fh = [];
     for await (const h of fo.values()){
       if (h.kind === 'file' && AW.fotoDatei(h.name)) namen.push(h.name);
-      else if (h.kind === 'directory' && !/^(_aussortiert|\.)/i.test(h.name)){   // _aussortiert: von FotoKit aussortiert, zählt nicht
-        let n = 0; for await (const x of h.values()) if (x.kind === 'file' && AW.fotoDatei(x.name)) n++;
+      else if (h.kind === 'directory' && !/^[_.]/.test(h.name)){
+        let n = 0;
+        try{
+          for await (const x of h.values()){
+            if (x.kind === 'file' && AW.fotoDatei(x.name)){ namen.push(h.name + '/' + x.name); n++; }
+            else if (x.kind === 'directory' && !/^[_.]/.test(x.name)){
+              let t = 0; try{ for await (const y of x.values()) if (y.kind === 'file' && AW.fotoDatei(y.name)) t++; }catch(e){}
+              if (t) tiefer.push(`${h.name}/${x.name} (${t})`);
+            }
+          }
+        }catch(e){ fh.push(`Der Ordner „Fotos/${h.name}“ ist nicht lesbar – seine Bilder sind nicht gezählt (${e.message}).`); }
         if (n) unterOrdner.push(`${h.name} (${n})`);
       }
     }
-    let aus = 0; const fh = [];
-    try{ const j = await quelleJson(await bereich(proj, 'fotokit', false), '_Bildumbenenner.json', ORDNER.fotos+'/_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {}; aus = namen.filter(n => b[n] && b[n].aussortiert).length; }
+    let aus = 0;
+    try{ const j = await quelleJson(await bereich(proj, 'fotokit', false), '_Bildumbenenner.json', ORDNER.fotos+'/_Bildumbenenner.json'); const b = j && j.daten && j.daten.bilder || {};
+      const weg = k => { const e = b[k] || b[k.normalize('NFC')]; return !!(e && e.aussortiert); };
+      aus = namen.filter(weg).length; }
     catch(e){ fh.push(`„Fotos/_Bildumbenenner.json“ ist nicht lesbar – in FotoKit aussortierte Fotos können nicht abgezogen werden, alle ${namen.length} Bilder sind gezählt.`); }
-    if (unterOrdner.length) fh.push(`Im Ordner „Fotos“ liegen Bilder in Unterordnern (${unterOrdner.join(', ')}) – gezählt werden nur die Fotos direkt in „Fotos“.`);
-    N.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
+    if (tiefer.length) fh.push(`In Unterordnern von „Fotos“ liegen Bilder eine Ebene tiefer (${tiefer.join(', ')}) – FotoKit zeigt sie nicht, sie sind nicht gezählt.`);
+    const imUnter = namen.filter(n => n.includes('/')).length, nachName = (a, b) => a.localeCompare(b, 'de', { numeric: true, sensitivity: 'base' });
+    unterOrdner.sort(nachName); tiefer.sort(nachName);   // Reihenfolge des Ordners auf der Platte ist zufällig
+    N.fotos = { anzahl: namen.length - aus, quelle: `${namen.length} Bilder im Ordner „Fotos“${imUnter ? ` (${imUnter} davon in Unterordnern: ${unterOrdner.join(', ')})` : ''}${aus ? `, davon ${aus} in FotoKit aussortiert` : ''}`, hinweise: fh };
   }
   // Berichte in „Mitteilungen“: je Dateistamm eine Zeile (Word und PDF)
   N.berichte = [];
