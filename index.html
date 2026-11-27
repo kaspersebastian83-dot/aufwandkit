@@ -837,17 +837,19 @@ async function ladeAlles(){
     for await (const h of fo.values()){
       if (h.kind === 'file' && AW.fotoDatei(h.name)) namen.push(h.name);
       else if (h.kind === 'directory' && !/^[_.]/.test(h.name)){
-        let n = 0;
+        // erst ganz lesen, dann übernehmen: bricht das Lesen mitten im Ordner ab, zählt keins seiner Bilder (wie der Hinweis sagt)
+        const hier = [], tieferHier = [];
         try{
           for await (const x of h.values()){
-            if (x.kind === 'file' && AW.fotoDatei(x.name)){ namen.push(h.name + '/' + x.name); n++; }
+            if (x.kind === 'file' && AW.fotoDatei(x.name)) hier.push(h.name + '/' + x.name);
             else if (x.kind === 'directory' && !/^[_.]/.test(x.name)){
               let t = 0; try{ for await (const y of x.values()) if (y.kind === 'file' && AW.fotoDatei(y.name)) t++; }catch(e){}
-              if (t) tiefer.push(`${h.name}/${x.name} (${t})`);
+              if (t) tieferHier.push(`${h.name}/${x.name} (${t})`);
             }
           }
-        }catch(e){ fh.push(`Der Ordner „Fotos/${h.name}“ ist nicht lesbar – seine Bilder sind nicht gezählt (${e.message}).`); }
-        if (n) unterOrdner.push(`${h.name} (${n})`);
+        }catch(e){ fh.push(`Der Ordner „Fotos/${h.name}“ ist nicht lesbar – seine Bilder sind nicht gezählt (${e.message}).`); continue; }
+        namen.push(...hier); tiefer.push(...tieferHier);
+        if (hier.length) unterOrdner.push(`${h.name} (${hier.length})`);
       }
     }
     let aus = 0;

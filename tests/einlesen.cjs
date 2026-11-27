@@ -108,10 +108,12 @@ const stand=c=>({berichte:c.A.berichte.map(b=>b.stamm).join(','),seiten:c.abrech
    // nicht lesbarer Unterordner: genannt, seine Bilder nicht still gezählt
    const io={read:()=>{}};const fr=await sitzung(tmp,F,'26.0105',io);
    const orig=fr.A.proj.dir.getDirectoryHandle.bind(fr.A.proj.dir);
-   fr.A.proj.dir.getDirectoryHandle=async(n,o)=>{const d=await orig(n,o);if(n!=='Fotos')return d;const v=d.values.bind(d);d.values=async function*(){for await(const h of v()){if(h.kind==='directory'&&h.name==='Bilder Stefan'){h.values=async function*(){throw Object.assign(Error('gesperrt'),{name:'NotReadableError'});};}yield h;}};return d;};
+   // bricht mitten im Ordner ab (erst ein Foto gelesen, dann Fehler) – auch das schon gelesene zählt nicht (Codex aufwandkit#47)
+   fr.A.proj.dir.getDirectoryHandle=async(n,o)=>{const d=await orig(n,o);if(n!=='Fotos')return d;const v=d.values.bind(d);d.values=async function*(){for await(const h of v()){if(h.kind==='directory'&&h.name==='fotos ka 20.08'){const hv=h.values.bind(h);h.values=async function*(){let k=0;for await(const x of hv()){if(x.kind==='file'&&k++>=1)throw Object.assign(Error('gesperrt'),{name:'NotReadableError'});yield x;}};}yield h;}};return d;};
    await fr.ladeAlles();
-   assert.equal(fr.A.fotos.anzahl,4,'ohne „Bilder Stefan“');
-   assert.ok(fr.A.fotos.hinweise.some(h=>/^Der Ordner „Fotos\/Bilder Stefan“ ist nicht lesbar – seine Bilder sind nicht gezählt/.test(h)),fr.A.fotos.hinweise.join('\n'));}
+   assert.equal(fr.A.fotos.anzahl,3,'ohne „fotos ka 20.08“ – auch nicht das vor dem Fehler gelesene Foto: direkt 2 + „Bilder Stefan“ 1');
+   assert.ok(!/fotos ka 20\.08/.test(fr.A.fotos.quelle),fr.A.fotos.quelle);
+   assert.ok(fr.A.fotos.hinweise.some(h=>/^Der Ordner „Fotos\/fotos ka 20\.08“ ist nicht lesbar – seine Bilder sind nicht gezählt/.test(h)),fr.A.fotos.hinweise.join('\n'));}
   console.log('OK Einlesen: doppelt „Neu einlesen“ und Projektwechsel während des Ladens ohne doppelte Stunden/Berichte; Fotos in Unterordnern (1.18.0)');
  }finally{await fs.rm(tmp,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exit(1);});
