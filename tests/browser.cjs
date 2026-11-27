@@ -458,10 +458,10 @@ const labelkit = { version: '4.27.0', proben: [...n(56), { id: 99, _nr: 99, matr
   const t2 = await page.locator('#seite').textContent();
   assert.match(t2, /„Aufwand_ZZ\.json“ ist nicht lesbar – die Zeiten von ZZ fehlen in der Abrechnung/);
   assert.match(t2, /Bericht „1__Mitteilung“ ist zur Abrechnung angekreuzt, liegt aber nicht mehr in „Mitteilungen“/);
-  assert.match(t2, /Bilder in Unterordnern \(Ortstermin 2 \(2\)\)/);
+  assert.doesNotMatch(t2, /gezählt werden nur die Fotos direkt/, '1.18.0: Fotos im Unterordner zählen mit (FotoKit 2.7.0)');
   assert.doesNotMatch(t2, /3 Berichtsseiten/, 'Seiten des verschwundenen Berichts nicht still mitgezählt');
   await page.locator('button[data-tab="bericht"]').click();
-  assert.match(await page.locator('#seite').textContent(), /5 Fotos \(6 Bilder im Ordner „Fotos“, davon 1 in FotoKit aussortiert\)/, 'Mac-Begleitdatei nicht gezählt');
+  assert.match(await page.locator('#seite').textContent(), /7 Fotos \(8 Bilder im Ordner „Fotos“ \(2 davon in Unterordnern: Ortstermin 2 \(2\)\), davon 1 in FotoKit aussortiert\)/, 'Unterordner mitgezählt, Mac-Begleitdatei nicht');
 
   const breit = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(breit <= 1, 'keine waagrechte Bildlaufleiste (' + breit + ' px)');

@@ -87,6 +87,39 @@ const stand=c=>({berichte:c.A.berichte.map(b=>b.stamm).join(','),seiten:c.abrech
    const b=await sitzung(tmp,A3,'26.0104',{});await b.ladeAlles();
    assert.equal(b.A.berichte.map(x=>x.stamm).join(','),'1__Bericht,Anschreiben_1. Mitteilung_Auftraggeber','angekreuztes Anschreiben bleibt sichtbar');
    assert.equal(b.abrechnungJetzt().seiten,11);}
-  console.log('OK Einlesen: doppelt „Neu einlesen“ und Projektwechsel während des Ladens ohne doppelte Stunden/Berichte');
+  // 1.18.0 (FotoKit 2.7.0): Fotos in Unterordnern von „Fotos“ zählen mit – eine Ebene, ohne „_…“/„.…“-Ordner, ohne FotoKit-„Weg“
+  // (Schlüssel „Ordner/Datei“); tiefer liegende Bilder zählen nicht (Hinweis); ein nicht lesbarer Unterordner wird genannt
+  {const F=await projekt(tmp,'26.0105 Fiktiv F','26.0105','1',0),fo=path.join(F,'Fotos');
+   const datei=async(rel,x='x')=>{await fs.mkdir(path.dirname(path.join(fo,rel)),{recursive:true});await fs.writeFile(path.join(fo,rel),x);};
+   for(const n of ['26.0105_001.jpg','26.0105_002.jpg','IMG_9.HEIC','notiz.txt','._26.0105_001.jpg','umb-tmp_heic_1.jpg'])await datei(n);
+   for(const n of ['fotos ka 20.08/IMG_0001.jpg','fotos ka 20.08/IMG_0002.jpg','fotos ka 20.08/IMG_0003.heic','Bilder Stefan/DSC_1.JPG','Bilder Stefan/liesmich.txt',
+     '_aussortiert/alt.jpg','_Originale/IMG_8.HEIC','fotos ka 20.08/_Originale/IMG_7.HEIC','.versteckt/x.jpg','Bilder Stefan/Tiefer/DSC_9.jpg'])await datei(n);
+   await datei('_Bildumbenenner.json',JSON.stringify({app:'Bildumbenenner',format:1,version:'2.7.0',bilder:{'26.0105_002.jpg':{aussortiert:true},'fotos ka 20.08/IMG_0002.jpg':{aussortiert:true},'Bilder Stefan/DSC_1.JPG':{beschreibung:'Keller'}}}));
+   const f=await sitzung(tmp,F,'26.0105',{});await f.ladeAlles();
+   assert.equal(f.A.fotos.anzahl,5,'direkt 3 (eins Weg) + „fotos ka 20.08“ 3 (eins Weg) + „Bilder Stefan“ 1 = 7 Bilder, 2 Weg → 5');
+   assert.equal(f.A.fotos.quelle,'7 Bilder im Ordner „Fotos“ (4 davon in Unterordnern: Bilder Stefan (1), fotos ka 20.08 (3)), davon 2 in FotoKit aussortiert');
+   assert.ok(f.A.fotos.hinweise.some(h=>h==='In Unterordnern von „Fotos“ liegen Bilder eine Ebene tiefer (Bilder Stefan/Tiefer (1)) – FotoKit zeigt sie nicht, sie sind nicht gezählt.'),f.A.fotos.hinweise.join('\n'));
+   assert.ok(!f.A.fotos.hinweise.some(h=>/gezählt werden nur die Fotos direkt/.test(h)),'kein Hinweis „nur direkt“ mehr');
+   assert.equal(f.abrechnungJetzt().fotos,5,'Abrechnung nimmt die Zahl');
+   // ohne Unterordner: Text wie bis 1.17.2
+   const G=await projekt(tmp,'26.0106 Fiktiv G','26.0106','1',0);await fs.mkdir(path.join(G,'Fotos'));for(const n of ['a.jpg','b.jpg'])await fs.writeFile(path.join(G,'Fotos',n),'x');
+   const g=await sitzung(tmp,G,'26.0106',{});await g.ladeAlles();
+   assert.deepEqual([g.A.fotos.anzahl,g.A.fotos.quelle,g.A.fotos.hinweise.length],[2,'2 Bilder im Ordner „Fotos“',0]);
+   // nicht lesbarer Unterordner: genannt, seine Bilder nicht still gezählt
+   const io={read:()=>{}};const fr=await sitzung(tmp,F,'26.0105',io);
+   const orig=fr.A.proj.dir.getDirectoryHandle.bind(fr.A.proj.dir);
+   // bricht mitten im Ordner ab (erst ein Foto gelesen, dann Fehler) – auch das schon gelesene zählt nicht (Codex aufwandkit#47)
+   fr.A.proj.dir.getDirectoryHandle=async(n,o)=>{const d=await orig(n,o);if(n!=='Fotos')return d;const v=d.values.bind(d);d.values=async function*(){for await(const h of v()){if(h.kind==='directory'&&h.name==='fotos ka 20.08'){const hv=h.values.bind(h);h.values=async function*(){let k=0;for await(const x of hv()){if(x.kind==='file'&&k++>=1)throw Object.assign(Error('gesperrt'),{name:'NotReadableError'});yield x;}};}yield h;}};return d;};
+   await fr.ladeAlles();
+   assert.equal(fr.A.fotos.anzahl,3,'ohne „fotos ka 20.08“ – auch nicht das vor dem Fehler gelesene Foto: direkt 2 + „Bilder Stefan“ 1');
+   assert.ok(!/fotos ka 20\.08/.test(fr.A.fotos.quelle),fr.A.fotos.quelle);
+   assert.ok(fr.A.fotos.hinweise.some(h=>/^Der Ordner „Fotos\/fotos ka 20\.08“ ist nicht lesbar – seine Bilder sind nicht gezählt/.test(h)),fr.A.fotos.hinweise.join('\n'));
+   // tieferer Ordner nicht lesbar: nicht still – im Hinweis auf tiefere Ordner genannt (Codex aufwandkit#47)
+   const ft=await sitzung(tmp,F,'26.0105',{});const o2=ft.A.proj.dir.getDirectoryHandle.bind(ft.A.proj.dir);
+   ft.A.proj.dir.getDirectoryHandle=async(n,o)=>{const d=await o2(n,o);if(n!=='Fotos')return d;const v=d.values.bind(d);d.values=async function*(){for await(const h of v()){if(h.kind==='directory'&&h.name==='Bilder Stefan'){const hv=h.values.bind(h);h.values=async function*(){for await(const x of hv()){if(x.kind==='directory'&&x.name==='Tiefer')x.values=async function*(){throw Object.assign(Error('gesperrt'),{name:'NotReadableError'});};yield x;}};}yield h;}};return d;};
+   await ft.ladeAlles();
+   assert.equal(ft.A.fotos.anzahl,5,'Zahl unverändert – tiefere Ordner zählen ohnehin nicht');
+   assert.ok(ft.A.fotos.hinweise.some(h=>h==='In Unterordnern von „Fotos“ liegen Bilder eine Ebene tiefer (Bilder Stefan/Tiefer (nicht lesbar)) – FotoKit zeigt sie nicht, sie sind nicht gezählt.'),ft.A.fotos.hinweise.join('\n'));}
+  console.log('OK Einlesen: doppelt „Neu einlesen“ und Projektwechsel während des Ladens ohne doppelte Stunden/Berichte; Fotos in Unterordnern (1.18.0)');
  }finally{await fs.rm(tmp,{recursive:true,force:true});}
 })().catch(e=>{console.error(e);process.exit(1);});
